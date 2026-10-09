@@ -1,0 +1,247 @@
+{
+  "server": {
+    "host": "127.0.0.1",
+    "port": 8089
+  },
+  "redis": {
+    "host": "127.0.0.1",
+    "port": 6379,
+    "password": "271a4f5a54ad9854d5803a6a74db130d69970e04bed0bc6aab449af3903d14e3"
+  },
+  "bot": {
+    "uin": 3055581141,
+    "command_prefix": [
+      "/",
+      "!",
+      "！"
+    ]
+  },
+  "permissions": {
+    "owners": [
+      2040266560,
+      2842868264
+    ],
+    "trust_admins": true
+  },
+  "modules": {
+    "chat": {
+      "name": "语言中枢互通",
+      "description": "与FreeCore-CoreNyan主脑连接的智能对话交互模块",
+      "enabled": true,
+      "allow_private": true,
+      "allowed_groups": [
+        516368088
+      ],
+      "denied_groups": [],
+      "allowed_users": [],
+      "denied_users": []
+    },
+    "status": {
+      "name": "服务器信息查询",
+      "description": "查询子服MOTD、人数、版本、维护状态、延迟与TPS并渲染图片",
+      "enabled": true,
+      "command": "status",
+      "aliases": [
+        "zt",
+        "状态",
+        "服务器状态"
+      ],
+      "allow_private": true,
+      "allowed_groups": [
+        516368088
+      ],
+      "denied_groups": [],
+      "allowed_users": [],
+      "denied_users": []
+    },
+    "line": {
+      "name": "线路信息查询",
+      "description": "查询Java版与基岩版所有节点连接线路状态与延迟并渲染图片",
+      "enabled": true,
+      "command": "line",
+      "aliases": [
+        "xl",
+        "线路",
+        "线路状态"
+      ],
+      "allow_private": true,
+      "allowed_groups": [
+        516368088
+      ],
+      "denied_groups": [],
+      "allowed_users": [],
+      "denied_users": []
+    },
+    "bal": {
+      "name": "玩家H币查询",
+      "description": "查询指定玩家的H币账户余额",
+      "enabled": true,
+      "command": "bal",
+      "aliases": [
+        "money",
+        "余额",
+        "h币",
+        "钱"
+      ],
+      "allow_private": true,
+      "allowed_groups": [
+        516368088
+      ],
+      "denied_groups": [],
+      "allowed_users": [],
+      "denied_users": []
+    },
+    "seen": {
+      "name": "玩家最后在线查询",
+      "description": "查询指定玩家上一次在线时间与状态（绝不泄露IP）",
+      "enabled": true,
+      "command": "seen",
+      "aliases": [
+        "在线时间",
+        "上次在线",
+        "查在线"
+      ],
+      "allow_private": true,
+      "allowed_groups": [
+        516368088
+      ],
+      "denied_groups": [],
+      "allowed_users": [],
+      "denied_users": []
+    },
+    "spark": {
+      "name": "Spark性能采样与私聊分析",
+      "description": "启动服务器深度性能采样，生成Spark报告链接并私发AI诊断结论（绝不群发）",
+      "enabled": true,
+      "command": "spark",
+      "aliases": [
+        "跑spark",
+        "性能分析",
+        "深度体检"
+      ],
+      "allow_private": true,
+      "allowed_groups": [
+        516368088
+      ],
+      "denied_groups": [],
+      "allowed_users": [],
+      "denied_users": []
+    }
+  },
+  "card_style": {
+    "font_family": "'SimHei', 'Microsoft YaHei', sans-serif",
+    "mono_font_family": "'Consolas', 'Courier New', monospace",
+    "background_color": "#0d1117",
+    "card_bg_color": "#161b22",
+    "card_border_color": "#30363d",
+    "accent_green": "#98dfaf",
+    "accent_yellow": "#fbe285",
+    "accent_red": "#ff9aa2",
+    "text_white": "#f0f6fc",
+    "text_muted": "#8b949e"
+  },
+  "help_messages": {
+    "user": "✦ 自由核心 FreeCore · 小可指令手册 ✦\n--------------------------------\n【常用交互与查询指令】\n▶ /status (/zt, /状态) : 查看全服各节点运行状态、人数与TPS\n▶ /line (/xl, /线路) : 查看Java版与基岩版全线路延迟与测速\n▶ /bal <玩家名> : 查询指定玩家的H币资产余额\n▶ /seen <玩家名> : 查询玩家上一次上线时间与离线时长\n▶ /help (/帮助) : 查看当前帮助信息\n▶ @小可 或 提及小可 : 与智能体小可聊天、询问游戏玩法或社区常识\n--------------------------------",
+    "owner": "✦ 自由核心 FreeCore · 控制台管理手册 ✦\n--------------------------------\n【服主 & 管理员管理权限】\n★ /status (/zt) : 全服状态监控卡片\n★ /line (/xl) : 全线路实时测速卡片\n★ /bal <玩家名> : 查询玩家H币资产\n★ /seen <玩家名> : 查询玩家最后在线时间\n★ /module : 查看当前所有功能模块开关状态\n★ /module <模块名> on/off : 开关本群指定功能模块\n--------------------------------"
+  },
+  "proxy": {
+    "host": "127.0.0.1",
+    "port": 25577,
+    "use_proxy_protocol": true,
+    "icon_path": "C:\\MCSManager\\daemon\\data\\InstanceData\\FreeCore-Proxy\\plugins\\CustomMOTD\\icon.png",
+    "fallback_line1": "✦ 自由核心 FreeCore ✦",
+    "fallback_line2": "» 原版 · 生存 · 社区 «"
+  },
+  "status_page": {
+    "title": "✦ Server Status ✦",
+    "subtitle": "自由核心 服务器状态监控",
+    "footer_text": "FreeCore",
+    "use_unified_proxy_motd": true,
+    "use_unified_proxy_icon": true,
+    "servers": [
+      {
+        "id": "survival",
+        "name": "FreeCore 生存服",
+        "badge": "FC",
+        "category": "Suvrvival",
+        "host": "127.0.0.1",
+        "port": 25569,
+        "is_maintenance": false,
+        "custom_motd_override": "",
+        "version_override": "",
+        "show_tps": true,
+        "default_tps": "20.0"
+      },
+      {
+        "id": "technical",
+        "name": "FreeCore 生电服",
+        "badge": "TC",
+        "category": "Technical",
+        "host": "127.0.0.1",
+        "port": 25570,
+        "is_maintenance": false,
+        "custom_motd_override": "",
+        "version_override": "",
+        "show_tps": true,
+        "default_tps": "20.0"
+      }
+    ]
+  },
+  "line_page": {
+    "title": "✦ Server Lines ✦",
+    "subtitle": "自由核心 节点状态",
+    "footer_text": "FreeCore",
+    "java_group_title": "Java 版全线路 ",
+    "bedrock_group_title": "基岩版 全线路",
+    "lines": {
+      "java": [
+        {
+          "name": "Java版 主线路",
+          "address": "mc.lynnhma.xyz",
+          "displayed_address": "mc.lynnhma.xyz",
+          "show_port": false,
+          "port": 25565,
+          "actual_address": "127.0.0.1",
+          "actual_port": 25565,
+          "type": "TCP"
+        },
+        {
+          "name": "Java版 移动/联通/电信通用专线",
+          "displayed_address": [
+            "(yd/lt/dx).lynnhma.xyz"
+          ],
+          "show_port": false,
+          "address": "frp-sun.com",
+          "actual_address": "frp-sun.com",
+          "actual_port": 15244,
+          "port": 25565,
+          "type": "TCP"
+        }
+      ],
+      "bedrock": [
+        {
+          "name": "基岩版 主线路",
+          "address": "mc.lynnhma.xyz",
+          "displayed_address": "mc.lynnhma.xyz",
+          "show_port": true,
+          "port": 25566,
+          "actual_address": "127.0.0.1",
+          "actual_port": 25566,
+          "type": "UDP"
+        },
+        {
+          "name": "基岩版 移动/联通/电信通用专线",
+          "displayed_address": [
+            "(yd/lt/dx).lynnhma.xyz"
+          ],
+          "show_port": true,
+          "address": "frp-tag.com",
+          "actual_address": "frp-tag.com",
+          "actual_port": 50000,
+          "port": 50000,
+          "type": "UDP"
+        }
+      ]
+    }
+  }
+}
