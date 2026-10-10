@@ -989,6 +989,27 @@ function handleRedisOutbound(packet) {
     }
 }
 
+// Recent messages circular cache (for recall and context recovery)
+const recentMessagesCache = new Map(); // message_id -> { sender, nickname, userId, groupId, text, raw, images: [], time }
+function cacheMessage(event, text, images) {
+    if (!event.message_id) return;
+    recentMessagesCache.set(String(event.message_id), {
+        messageId: String(event.message_id),
+        userId: event.user_id,
+        groupId: event.group_id,
+        sender: event.sender?.card || event.sender?.nickname || String(event.user_id),
+        text: text,
+        raw: event.raw_message || '',
+        images: images || [],
+        time: Date.now()
+    });
+    // Evict old entries (> 200 items)
+    if (recentMessagesCache.size > 200) {
+        const firstKey = recentMessagesCache.keys().next().value;
+        recentMessagesCache.delete(firstKey);
+    }
+}
+
 // ==========================================
 // 6. 消息调度与指令系统
 // ==========================================
@@ -1003,18 +1024,33 @@ async function handleOneBotMessage(event) {
 
     let text = '';
     let isAt = false;
+    const imageUrls = [];
+
     if (Array.isArray(event.message)) {
         for (const seg of event.message) {
             if (seg.type === 'at' && String(seg.data?.qq) === String(config.bot.uin)) {
                 isAt = true;
             } else if (seg.type === 'text') {
                 text += seg.data?.text || '';
+            } else if (seg.type === 'image') {
+                const imgUrl = seg.data?.url || seg.data?.file || '';
+                if (imgUrl) imageUrls.push(imgUrl);
             }
         }
     } else {
         text = rawMsg;
     }
     text = text.trim();
+
+    // 缓存此消息，用于后续撤回事件精准抓包
+    cacheMessage(event, text, imageUrls);
+
+    // 组合展示正文（如果含有图片，附带可感知的图片占位或图片链接）
+    let fullDisplayMessage = text;
+    if (imageUrls.length > 0) {
+        const imgTags = imageUrls.map(u => `[图片:${u}]`).join(' ');
+        fullDisplayMessage = fullDisplayMessage ? `${fullDisplayMessage} ${imgTags}` : imgTags;
+    }
 
     // Check command
     const prefix = config.bot.command_prefix.find(p => text.startsWith(p));
@@ -1042,10 +1078,80 @@ async function handleOneBotMessage(event) {
         nickname: event.sender?.card || event.sender?.nickname || 'QQ用户',
         role: role,
         message_id: event.message_id,
-        message: text || rawMsg,
+        message: fullDisplayMessage || rawMsg,
+        image_urls: imageUrls,
         is_at: isAt,
         is_mentioned: isAt || (text.includes('小可') || text.toLowerCase().includes('corenyan')),
         timestamp: event.time ? event.time * 1000 : Date.now()
+    };
+
+    sendRedisCmd(redisPub, 'PUBLISH', 'freecore:agent:qq:inbound', JSON.stringify(inbound));
+}
+
+// OneBot 11 通知/事件处理器 (群撤回, 禁言, 入群等)
+async function handleOneBotNotice(event) {
+    reloadConfig();
+    const subType = event.sub_type || '';
+    const noticeType = event.notice_type || '';
+    const groupId = event.group_id;
+    const userId = event.user_id;
+    const operatorId = event.operator_id;
+
+    log(`[QQ事件通知] 类型=${noticeType}/${subType}, 群=${groupId || '无'}, 用户=${userId}`);
+
+    // 只处理允许的群
+    if (groupId && !isModuleAllowed('chat', true, groupId, userId)) {
+        return;
+    }
+
+    let eventDesc = '';
+    let eventImages = [];
+
+    if (noticeType === 'group_recall') {
+        const msgId = String(event.message_id);
+        const cached = recentMessagesCache.get(msgId);
+        const targetName = cached ? cached.sender : `用户(${userId})`;
+        const operatorName = operatorId === userId ? targetName : `管理员(${operatorId})`;
+        
+        if (cached && (cached.text || cached.images.length > 0)) {
+            const imgNote = cached.images.length > 0 ? ` [包含图片: ${cached.images.join(', ')}]` : '';
+            eventDesc = `【群事件·撤回】${operatorName} 刚刚撤回了 ${targetName} 的消息！原内容: "${cached.text}"${imgNote}`;
+            eventImages = cached.images;
+        } else {
+            eventDesc = `【群事件·撤回】${operatorName} 撤回了一条群消息（消息ID: ${msgId}，未命中缓存正文）`;
+        }
+    } else if (noticeType === 'group_ban') {
+        const duration = event.duration || 0; // 秒
+        if (subType === 'ban' || duration > 0) {
+            const mins = Math.round(duration / 60);
+            eventDesc = `【群事件·禁言】管理员(${operatorId}) 对 用户(${userId}) 实施了禁言，时长 ${mins} 分钟。`;
+        } else if (subType === 'lift_ban' || duration === 0) {
+            eventDesc = `【群事件·解禁】管理员(${operatorId}) 解除了 用户(${userId}) 的禁言。`;
+        }
+    } else if (noticeType === 'group_increase') {
+        eventDesc = `【群事件·新群友入群】新人(${userId}) 加入了群聊【MI社】！`;
+    }
+
+    if (!eventDesc) return;
+
+    log(`[群事件广播至中枢] ${eventDesc}`);
+
+    const inbound = {
+        platform: 'qq',
+        channel: 'qq_group',
+        group_id: groupId || 516368088,
+        group_name: 'MI社',
+        user_id: userId || operatorId || 0,
+        nickname: `[系统事件]`,
+        role: 'system',
+        message_id: event.message_id || 0,
+        message: eventDesc,
+        image_urls: eventImages,
+        is_notice: true,
+        notice_type: noticeType,
+        is_at: false,
+        is_mentioned: false,
+        timestamp: Date.now()
     };
 
     sendRedisCmd(redisPub, 'PUBLISH', 'freecore:agent:qq:inbound', JSON.stringify(inbound));
@@ -1366,6 +1472,8 @@ function startGateway() {
                     const sender = event.sender?.card || event.sender?.nickname || event.user_id;
                     log(`[QQ消息入站] [${event.message_type === 'group' ? `群:${event.group_id}` : '私聊'}] ${sender}: ${rawMsg}`);
                     handleOneBotMessage(event);
+                } else if (event.post_type === 'notice') {
+                    handleOneBotNotice(event);
                 } else if (!event.post_type) {
                     // API action response
                     if (event.echo === 'check_friend_list') {
