@@ -690,6 +690,7 @@ async function renderSparkImage(parsedNodes, analysisSummary) {
     const style = config.card_style || {};
     const font = style.font_family || "'Microsoft YaHei', sans-serif";
     const monoFont = style.mono_font_family || "'Consolas', 'Courier New', monospace";
+    const sparkCfg = config.spark_page || {};
     const doodle = getRandomDoodle();
 
     const padding = 46;
@@ -752,7 +753,7 @@ async function renderSparkImage(parsedNodes, analysisSummary) {
         <g transform="translate(${padding}, 36)">
             ${drawPencilBox(0, 0, 420, 56, { roughness: 2.0, bowing: 1.5, stroke: '#e2e8f0', strokeWidth: 2.0, seed: 18 })}
             <text x="22" y="36" fill="#fbe285" font-size="18" font-family="${monoFont}" font-weight="900">&gt;&gt;</text>
-            <text x="56" y="36" fill="#f8fafc" font-size="19" font-family="${font}" font-weight="900" letter-spacing="1">FreeCore // Spark 性能体检看板</text>
+            <text x="56" y="36" fill="#f8fafc" font-size="19" font-family="${font}" font-weight="900" letter-spacing="1">${sparkCfg.title || 'FreeCore // Spark 性能看板'}</text>
             <text x="398" y="34" fill="#94a3b8" font-size="12" font-family="${monoFont}" font-weight="bold" text-anchor="end">PROFILER</text>
         </g>
 
@@ -762,7 +763,7 @@ async function renderSparkImage(parsedNodes, analysisSummary) {
             <circle cx="20" cy="28" r="4" fill="#98dfaf"/>
             <text x="32" y="32" fill="#98dfaf" font-size="12" font-family="${monoFont}" font-weight="900">SPARK : 15s SAMPLED</text>
             <text x="206" y="32" fill="#94a3b8" font-size="11" font-family="${monoFont}" font-weight="bold" text-anchor="end">&gt;&gt; DUAL</text>
-            <text x="20" y="47" fill="#64748b" font-size="10" font-family="${monoFont}">TECH &amp; SURVIVAL</text>
+            <text x="20" y="47" fill="#64748b" font-size="10" font-family="${monoFont}">${sparkCfg.subtitle || 'TECH &amp; SURVIVAL'}</text>
         </g>
 
         <!-- 节点报告卡片 -->
@@ -771,9 +772,9 @@ async function renderSparkImage(parsedNodes, analysisSummary) {
         <!-- 底部小可评语与处方便签 -->
         <g transform="translate(${padding}, ${totalHeight - 120})">
             ${drawPencilBox(0, 0, 420, 84, { roughness: 1.5, bowing: 1.0, stroke: '#94a3b8', strokeWidth: 1.4, seed: 99, fill: '#141720' })}
-            <text x="20" y="28" fill="#fbe285" font-size="13" font-family="${font}" font-weight="bold">小可的体检处方 💡</text>
-            <text x="20" y="52" fill="#cbd5e1" font-size="12" font-family="${font}">${analysisSummary.slice(0, 36) || '双服运行良好，请留意生电服强加载区块。'}</text>
-            <text x="20" y="70" fill="#94a3b8" font-size="11" font-family="${font}">详细诊断代码已单独私发，请注意坐标保密哦~</text>
+            <text x="20" y="28" fill="#fbe285" font-size="13" font-family="${font}" font-weight="bold">${sparkCfg.prescription_title || '小可的体检处方 💡'}</text>
+            <text x="20" y="52" fill="#cbd5e1" font-size="12" font-family="${font}">${analysisSummary.slice(0, 36) || sparkCfg.default_advice}</text>
+            <text x="20" y="70" fill="#94a3b8" font-size="11" font-family="${font}">${sparkCfg.confidential_tip || '详细诊断代码已单独私发，请注意坐标保密哦~'}</text>
         </g>
 
         <!-- 右下角小可贴纸 -->

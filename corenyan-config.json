@@ -51,7 +51,8 @@
       "enabled": true,
       "allow_private": true,
       "allowed_groups": [
-        516368088
+        516368088,
+        1127138554
       ],
       "denied_groups": [],
       "allowed_users": [],
@@ -88,7 +89,8 @@
       ],
       "allow_private": true,
       "allowed_groups": [
-        516368088
+        516368088,
+        1127138554
       ],
       "denied_groups": [],
       "allowed_users": [],
@@ -107,7 +109,8 @@
       ],
       "allow_private": true,
       "allowed_groups": [
-        516368088
+        516368088,
+        1127138554
       ],
       "denied_groups": [],
       "allowed_users": [],
@@ -125,7 +128,8 @@
       ],
       "allow_private": true,
       "allowed_groups": [
-        516368088
+        516368088,
+        1127138554
       ],
       "denied_groups": [],
       "allowed_users": [],
@@ -284,5 +288,13 @@
         }
       ]
     }
+  },
+  "spark_page": {
+    "title": "✦ Spark Profiler ✦",
+    "subtitle": "自由核心 深度性能诊断体检",
+    "footer_text": "FreeCore",
+    "prescription_title": "小可的体检处方 💡",
+    "default_advice": "双服运行平稳，请留意生电服强加载区域实体分布与漏斗流向。",
+    "confidential_tip": "详细诊断代码已单独私发，内部包含服务器坐标与拓扑，请服主妥善保管勿外泄哦~"
   }
 }
