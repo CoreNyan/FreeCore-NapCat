@@ -702,6 +702,24 @@ function queryMcTool(toolCall, timeoutMs) {
     });
 }
 
+function stripMarkdown(text) {
+    if (!text) return '';
+    return text
+        // 去除 Markdown 粗体/斜体: **text** 或 *text* 或 __text__ 或 _text_
+        .replace(/\*\*([^*]+)\*\*/g, '$1')
+        .replace(/\*([^*]+)\*/g, '$1')
+        .replace(/__([^_]+)__/g, '$1')
+        .replace(/_([^_]+)_/g, '$1')
+        // 去除行内代码块: `code`
+        .replace(/`([^`]+)`/g, '$1')
+        // 去除标题符号: # Title -> Title
+        .replace(/^#{1,6}\s+/gm, '')
+        // 去除无序列表符号: - item -> item
+        .replace(/^\s*[-*+]\s+/gm, '• ')
+        // 去除引用符号: > quote -> quote
+        .replace(/^\s*>\s?/gm, '');
+}
+
 async function analyzeSparkWithLlm(rawReport, nickname) {
     try {
         const apiKey = 'e1d34dd515b04f5b949f93d09c3aad01.RpPyuHtmCZ4nHlEi';
@@ -718,7 +736,8 @@ ${rawReport}
 3. 列出核心指标：TPS、MSPT、CPU利用率、内存占比；
 4. 明确展示 Spark Web 诊断报告链接（若有提供），并提醒“此链接包含服务器内部结构与坐标，请妥善保管勿外泄哦”；
 5. 分析各世界实体与区块负载情况，并给出 1~2 条专业的调优建议；
-6. 排版清晰美观，使用 emoji 引导各章节，长度约 200~300 字。`;
+6. 排版清晰美观，使用 emoji 引导各章节，长度约 200~300 字；
+7. 【严禁使用任何 Markdown 格式】：严禁使用 **加粗**、*斜体*、\`代码块\`、#标题 等任何 Markdown 标记！QQ聊天界面无法渲染 Markdown，必须全部使用纯文本排版！`;
 
         const res = await fetch(url, {
             method: 'POST',
@@ -736,21 +755,23 @@ ${rawReport}
 
         const data = await res.json();
         if (data.choices && data.choices[0] && data.choices[0].message) {
-            return data.choices[0].message.content.trim();
+            const content = data.choices[0].message.content.trim();
+            return stripMarkdown(content);
         }
     } catch (e) {
         log('Spark LLM analysis error:', e.message);
     }
-    return `【Spark 性能采样报告（原数据）】\n${rawReport}`;
+    return stripMarkdown(`【Spark 性能采样报告（原数据）】\n${rawReport}`);
 }
 
 function sendPrivateMessage(userId, text) {
     if (!napcatWs || napcatWs.readyState !== WebSocket.OPEN) return;
+    const cleanText = stripMarkdown(text);
     const payload = {
         action: 'send_private_msg',
         params: {
             user_id: Number(userId),
-            message: [{ type: 'text', data: { text: text } }]
+            message: [{ type: 'text', data: { text: cleanText } }]
         },
         echo: `priv_spark_${userId}_${Date.now()}`
     };
