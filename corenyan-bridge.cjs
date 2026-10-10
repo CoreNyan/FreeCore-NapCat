@@ -683,6 +683,7 @@ async function renderLineImage(lineResults) {
 let redisPub = null;
 let redisSub = null;
 let redisToolSub = null;
+// pendingBridgeToolCalls: id -> { responses: string[], timer: Timeout, resolve: Function }
 const pendingBridgeToolCalls = new Map();
 
 function queryMcTool(toolCall, timeoutMs) {
@@ -690,14 +691,45 @@ function queryMcTool(toolCall, timeoutMs) {
     const actualTimeout = timeoutMs || (isLongTask ? 35000 : 4000);
     return new Promise((resolve) => {
         const id = `bridge_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-        const timer = setTimeout(() => {
-            pendingBridgeToolCalls.delete(id);
-            resolve('【查询超时】Minecraft 游戏服未响应或当前离线。');
-        }, actualTimeout);
-        pendingBridgeToolCalls.set(id, (res) => {
-            clearTimeout(timer);
-            resolve(res);
-        });
+        
+        if (isLongTask) {
+            // Spark 长任务：等待双子服（生存服与生电服）全部返回或等到超时汇总
+            const timer = setTimeout(() => {
+                const entry = pendingBridgeToolCalls.get(id);
+                pendingBridgeToolCalls.delete(id);
+                if (entry && entry.responses.length > 0) {
+                    resolve(entry.responses.join('\n\n====================\n\n'));
+                } else {
+                    resolve('【查询超时】Minecraft 游戏服未响应或当前离线。');
+                }
+            }, actualTimeout);
+
+            pendingBridgeToolCalls.set(id, {
+                responses: [],
+                timer,
+                resolve,
+                isLongTask: true
+            });
+        } else {
+            // 普通短工具（如查询玩家、资产等）：1.2秒聚合窗口
+            const timer = setTimeout(() => {
+                const entry = pendingBridgeToolCalls.get(id);
+                pendingBridgeToolCalls.delete(id);
+                if (entry && entry.responses.length > 0) {
+                    resolve(entry.responses.join('\n'));
+                } else {
+                    resolve('【查询超时】Minecraft 游戏服未响应或当前离线。');
+                }
+            }, Math.min(1500, actualTimeout));
+
+            pendingBridgeToolCalls.set(id, {
+                responses: [],
+                timer,
+                resolve,
+                isLongTask: false
+            });
+        }
+
         sendRedisCmd(redisPub, 'PUBLISH', 'freecore:agent:tool:request', JSON.stringify({ id, tool: toolCall }));
     });
 }
@@ -725,19 +757,18 @@ async function analyzeSparkWithLlm(rawReport, nickname) {
         const apiKey = 'e1d34dd515b04f5b949f93d09c3aad01.RpPyuHtmCZ4nHlEi';
         const url = 'https://open.bigmodel.cn/api/paas/v4/chat/completions';
         const prompt = `你是小可（CoreNyan），真实存在于 FreeCore Minecraft 社区中的专属 OP 少女。
-请根据以下服务器现场采集到的 Spark 性能报告与硬件环境快照，为群友/服主 ${nickname} 生成一份专业、清晰又带有元气可爱傲娇风格的私聊体检诊断报告。
+请根据以下服务器现场采集到的 Spark 性能报告（注意：包含【生存服 (Survival)】与【生电服 (Tech)】两个独立节点的真实诊断数据），为群友/服主 ${nickname} 生成一份专业、清晰又带有元气可爱傲娇风格的私聊体检诊断报告。
 
 【输入现场报告数据】：
 ${rawReport}
 
 【报告输出要求】：
 1. 语言亲切生动，保持专属 OP 少女的傲娇元气感；
-2. 给出综合健康评级（极佳 / 稳定良好 / 轻度负载 / 严重卡顿）；
-3. 列出核心指标：TPS、MSPT、CPU利用率、内存占比；
-4. 明确展示 Spark Web 诊断报告链接（若有提供），并提醒“此链接包含服务器内部结构与坐标，请妥善保管勿外泄哦”；
-5. 分析各世界实体与区块负载情况，并给出 1~2 条专业的调优建议；
-6. 排版清晰美观，使用 emoji 引导各章节，长度约 200~300 字；
-7. 【严禁使用任何 Markdown 格式】：严禁使用 **加粗**、*斜体*、\`代码块\`、#标题 等任何 Markdown 标记！QQ聊天界面无法渲染 Markdown，必须全部使用纯文本排版！`;
+2. 分别列出【生存服】与【生电服】的双节点综合健康评级与核心指标（TPS、MSPT、CPU利用率、内存占比）；
+3. 明确分别展示两个节点的 Spark Web 诊断报告链接（若有提供），并提醒“此链接包含服务器内部结构与坐标，请妥善保管勿外泄哦”；
+4. 分析两个世界的实体与区块负载情况，并给出 1~2 条专业的调优建议；
+5. 排版清晰美观，使用 emoji 引导各章节，长度约 250~350 字；
+6. 【严禁使用任何 Markdown 格式】：严禁使用 **加粗**、*斜体*、\`代码块\`、#标题 等任何 Markdown 标记！QQ聊天界面无法渲染 Markdown，必须全部使用纯文本排版！`;
 
         const res = await fetch(url, {
             method: 'POST',
@@ -876,8 +907,16 @@ function connectRedis() {
             try {
                 const parsed = JSON.parse(payloadBuf.toString('utf8'));
                 if (parsed.id && pendingBridgeToolCalls.has(parsed.id)) {
-                    pendingBridgeToolCalls.get(parsed.id)(parsed.result);
-                    pendingBridgeToolCalls.delete(parsed.id);
+                    const entry = pendingBridgeToolCalls.get(parsed.id);
+                    if (parsed.result && !entry.responses.includes(parsed.result)) {
+                        entry.responses.push(parsed.result);
+                    }
+                    // 如果双子服（生存服与生电服）都已经返回了结果（>=2），无需苦等超时，立即提前交付！
+                    if (entry.responses.length >= 2) {
+                        clearTimeout(entry.timer);
+                        pendingBridgeToolCalls.delete(parsed.id);
+                        entry.resolve(entry.responses.join('\n\n====================\n\n'));
+                    }
                 }
             } catch (e) {
                 log('Failed to parse tool response JSON:', e.message);
@@ -1305,7 +1344,7 @@ async function handleCommand(cmd, args, event, isGroup, groupId, userId, role) {
         }
 
         log(`[指令 /spark] 收到来自 ${userId} 的采样请求: ${seconds}秒`);
-        const tips = `好哒！本姑娘已启动游戏服 ${seconds} 秒 Spark 深度性能采样与链路分析！出于安全与隐私考虑，诊断链接与 AI 深度分析将在生成后【私发给您】，绝不群发到公屏哦！(๑•̀ㅂ•́)و✧`;
+        const tips = `好哒！小可已启动游戏服 ${seconds} 秒 Spark 深度性能采样与链路分析！诊断结果正在生成中...(๑•̀ㅂ•́)و✧`;
         sendQuickReply(event, tips);
 
         // Asynchronous profiling, analysis and private dispatch
