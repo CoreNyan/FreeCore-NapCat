@@ -925,9 +925,9 @@ ${rawReport}
 【报告输出要求】：
 1. 语言亲切生动，保持专属 OP 少女的傲娇元气感；
 2. 分别列出【生存服】与【生电服】的双节点综合健康评级与核心指标（TPS、MSPT、CPU利用率、内存占比）；
-3. 明确分别展示两个节点的 Spark Web 诊断报告链接（若有提供），并提醒“此链接包含服务器内部结构与坐标，请妥善保管勿外泄哦”；
+3. 【极其重要·严禁包含任何链接】：报告正文中绝对不要出现任何 http/https 或 spark.lucko.me 链接！（链接会由底层系统单独以安全代码发送，正文包含链接会导致 QQNT 拦截显示为“该消息类型暂不支持查看”！）；
 4. 分析两个世界的实体与区块负载情况，并给出 1~2 条专业的调优建议；
-5. 排版清晰美观，使用 emoji 引导各章节，长度约 250~350 字；
+5. 排版清晰美观，长度约 200~300 字；
 6. 【严禁使用任何 Markdown 格式】：严禁使用 **加粗**、*斜体*、\`代码块\`、#标题 等任何 Markdown 标记！QQ聊天界面无法渲染 Markdown，必须全部使用纯文本排版！`;
 
         const res = await fetch(url, {
@@ -1641,21 +1641,20 @@ async function handleCommand(cmd, args, event, isGroup, groupId, userId, role) {
                 const senderName = event.sender?.nickname || '服主/管理';
                 const finalAnalysis = await analyzeSparkWithLlm(rawReport, senderName);
 
-                // 1. 解析双服采样节点数据并渲染手绘日系黑皮纸体检图卡
-                const parsedNodes = parseSparkRaw(rawReport);
-                const chartImg = await renderSparkImage(parsedNodes, finalAnalysis);
-                sendPrivateImage(userId, chartImg.toString('base64'));
-
-                // 2. 将大模型生成的详细分析评语与调优建议，以纯文本形式完整私聊发送给服主！
+                // 1. 将大模型生成的纯文本分析（已严格剥离任何 URL 和 Markdown）私聊发送给服主
                 sendPrivateMessage(userId, finalAnalysis);
 
-                // 3. 紧接着私发一条不带“https://”的纯净报告代码链接，绝对不触发腾讯风控拦截！
+                // 2. 紧接着私发一条不带“https://”的纯净报告代码链接，绝对不触发腾讯风控拦截！
                 let cleanLinksMsg = `【Spark 详细诊断报告代号 (安全无协议链接)】\n`;
                 for (const node of parsedNodes) {
                     cleanLinksMsg += `• ${node.serverName}: ${node.cleanUrl || '暂无外链'}\n`;
                 }
                 cleanLinksMsg += `\n💡 提示: 复制上方域名在浏览器直接打开即可查验火焰图与方法耗时！`;
                 sendPrivateMessage(userId, cleanLinksMsg);
+
+                // 3. 渲染并私发手绘体检图卡
+                const chartImg = await renderSparkImage(parsedNodes, finalAnalysis);
+                sendPrivateImage(userId, chartImg.toString('base64'));
             } catch (err) {
                 log(`[Spark任务失败] ${err.message}`);
                 sendPrivateMessage(userId, `【Spark 诊断提醒】后台性能采样出现异常: ${err.message}`);
