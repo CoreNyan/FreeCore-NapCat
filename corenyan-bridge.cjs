@@ -1319,11 +1319,17 @@ async function handleCommand(cmd, args, event, isGroup, groupId, userId, role) {
         return true;
     }
 
-    // 4.1 /spark 指令 (深度性能分析采样与私发报告 - 绝不群发)
+    // 4.1 /spark 指令 (深度性能分析采样与私发报告 - 仅限服主与管理员)
     const sparkMod = config.modules.spark;
     if (sparkMod && (cmd === sparkMod.command || (sparkMod.aliases && sparkMod.aliases.includes(cmd)))) {
         if (!isModuleAllowed('spark', isGroup, groupId, userId)) {
             sendQuickReply(event, '【提示】当前群聊或私聊未启用 Spark 性能采样模块。');
+            return true;
+        }
+
+        const isPermitted = isOwnerOrAdmin(userId, role);
+        if (!isPermitted) {
+            sendQuickReply(event, '哼！Spark 深度性能采样涉及服务器底层敏感架构与热点数据，只有服主大人和管理才可以执行哦！(｀・ω・´)');
             return true;
         }
 
