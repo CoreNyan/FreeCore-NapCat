@@ -1646,7 +1646,10 @@ async function handleCommand(cmd, args, event, isGroup, groupId, userId, role) {
                 const chartImg = await renderSparkImage(parsedNodes, finalAnalysis);
                 sendPrivateImage(userId, chartImg.toString('base64'));
 
-                // 2. 紧接着私发一条不带“https://”的纯净报告代码链接，绝对不触发腾讯风控拦截！
+                // 2. 将大模型生成的详细分析评语与调优建议，以纯文本形式完整私聊发送给服主！
+                sendPrivateMessage(userId, finalAnalysis);
+
+                // 3. 紧接着私发一条不带“https://”的纯净报告代码链接，绝对不触发腾讯风控拦截！
                 let cleanLinksMsg = `【Spark 详细诊断报告代号 (安全无协议链接)】\n`;
                 for (const node of parsedNodes) {
                     cleanLinksMsg += `• ${node.serverName}: ${node.cleanUrl || '暂无外链'}\n`;
