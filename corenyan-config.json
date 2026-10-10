@@ -52,7 +52,8 @@
       "allow_private": true,
       "allowed_groups": [
         516368088,
-        1127138554
+        1127138554,
+        1085070135
       ],
       "denied_groups": [],
       "allowed_users": [],
@@ -71,7 +72,8 @@
       "allow_private": true,
       "allowed_groups": [
         516368088,
-        1127138554
+        1127138554,
+        1085070135
       ],
       "denied_groups": [],
       "allowed_users": [],
@@ -90,7 +92,8 @@
       "allow_private": true,
       "allowed_groups": [
         516368088,
-        1127138554
+        1127138554,
+        1085070135
       ],
       "denied_groups": [],
       "allowed_users": [],
@@ -110,7 +113,8 @@
       "allow_private": true,
       "allowed_groups": [
         516368088,
-        1127138554
+        1127138554,
+        1085070135
       ],
       "denied_groups": [],
       "allowed_users": [],
@@ -129,7 +133,8 @@
       "allow_private": true,
       "allowed_groups": [
         516368088,
-        1127138554
+        1127138554,
+        1085070135
       ],
       "denied_groups": [],
       "allowed_users": [],
@@ -148,7 +153,8 @@
       "allow_private": true,
       "allowed_groups": [
         516368088,
-        1127138554
+        1127138554,
+        1085070135
       ],
       "denied_groups": [],
       "allowed_users": [],
@@ -166,7 +172,27 @@
       "allow_private": true,
       "allowed_groups": [
         516368088,
-        1127138554
+        1127138554,
+        1085070135
+      ],
+      "denied_groups": [],
+      "allowed_users": [],
+      "denied_users": []
+    },
+    "owner": {
+      "name": "服主权限管理",
+      "description": "管理小可核心授信服主Owner列表（仅管理员Admin可用）",
+      "enabled": true,
+      "command": "owner",
+      "aliases": [
+        "服主",
+        "fz"
+      ],
+      "allow_private": true,
+      "allowed_groups": [
+        516368088,
+        1127138554,
+        1085070135
       ],
       "denied_groups": [],
       "allowed_users": [],
@@ -291,10 +317,10 @@
   },
   "spark_page": {
     "title": "✦ Spark Profiler ✦",
-    "subtitle": "自由核心 深度性能诊断体检",
+    "subtitle": "",
     "footer_text": "FreeCore",
     "prescription_title": "小可的体检处方 💡",
     "default_advice": "双服运行平稳，请留意生电服强加载区域实体分布与漏斗流向。",
-    "confidential_tip": "详细诊断代码已单独私发，内部包含服务器坐标与拓扑，请服主妥善保管勿外泄哦~"
+    "confidential_tip": "详细诊断代码已单独私发，请妥善保管勿外泄哦~"
   }
 }

@@ -1826,6 +1826,78 @@ async function handleCommand(cmd, args, event, isGroup, groupId, userId, role) {
         }
     }
 
+    // 5.2 /owner 指令 (管理Owner权限列表，仅Admin可用)
+    const ownerMod = config.modules.owner;
+    if (ownerMod && (cmd === ownerMod.command || (ownerMod.aliases && ownerMod.aliases.includes(cmd)))) {
+        // 严格仅管理员与服主能用
+        const isPermitted = isOwnerOrAdmin(userId, role);
+        if (!isPermitted) {
+            sendQuickReply(event, '哼！你没有群管理员或服主权限，无权调整小可的服主Owner列表！(｀・ω・´)');
+            return true;
+        }
+
+        if (!config.permissions.owners) config.permissions.owners = [];
+
+        if (args.length === 0 || args[0].toLowerCase() === 'list' || args[0] === '列表') {
+            const list = config.permissions.owners;
+            let msg = `✦ 小可认证服主 (Owner) 授信列表 ✦\n--------------------------------\n`;
+            if (list.length === 0) {
+                msg += `• 当前暂无配置 Owner\n`;
+            } else {
+                list.forEach((u, idx) => {
+                    msg += `★ [${idx + 1}] QQ: ${u}\n`;
+                });
+            }
+            msg += `--------------------------------\n【管理指令 (仅Admin可用)】:\n• /owner add <QQ号>  (添加服主授信)\n• /owner remove <QQ号>  (移除服主授信)\n• /owner list  (查看列表)`;
+            sendQuickReply(event, msg);
+            return true;
+        }
+
+        const sub = args[0].toLowerCase();
+        const targetQq = args[1] ? args[1].trim() : '';
+
+        if (sub === 'add' || sub === '添加') {
+            const tNum = Number(targetQq);
+            if (!tNum || isNaN(tNum)) {
+                sendQuickReply(event, '用法错误！请指定有效的QQ号: /owner add <QQ号>');
+                return true;
+            }
+            if (config.permissions.owners.includes(tNum)) {
+                sendQuickReply(event, `QQ (${tNum}) 已经在小可的服主 Owner 名单里啦~(๑>◡<๑)`);
+                return true;
+            }
+            // 如果在黑名单里，自动从黑名单剔除
+            if (config.permissions.blacklist && config.permissions.blacklist.includes(tNum)) {
+                config.permissions.blacklist = config.permissions.blacklist.filter(id => Number(id) !== tNum);
+            }
+            config.permissions.owners.push(tNum);
+            saveConfig();
+            sendQuickReply(event, `好哒！已将 QQ (${tNum}) 登记为小可的服主 Owner！尊享最高管理与自动进群特权！(๑•̀ㅂ•́)و✧`);
+            return true;
+        } else if (sub === 'del' || sub === 'remove' || sub === '移除' || sub === '删除') {
+            const tNum = Number(targetQq);
+            if (!tNum || isNaN(tNum)) {
+                sendQuickReply(event, '用法错误！请指定有效的QQ号: /owner remove <QQ号>');
+                return true;
+            }
+            if (!config.permissions.owners.includes(tNum)) {
+                sendQuickReply(event, `QQ (${tNum}) 并不在 Owner 名单里哦~`);
+                return true;
+            }
+            if (config.permissions.owners.length <= 1) {
+                sendQuickReply(event, '喂喂！这是小可唯一的服主账号啦，不能全部删掉！(ﾟДﾟ*)');
+                return true;
+            }
+            config.permissions.owners = config.permissions.owners.filter(id => Number(id) !== tNum);
+            saveConfig();
+            sendQuickReply(event, `已成功移除 QQ (${tNum}) 的服主 Owner 授信身份。`);
+            return true;
+        } else {
+            sendQuickReply(event, '用法错误！/owner list 查看列表，/owner add <QQ号> 添加，/owner remove <QQ号> 移除');
+            return true;
+        }
+    }
+
     // 6. /help 或 /帮助 指令
     if (cmd === 'help' || cmd === '帮助' || cmd === 'bz' || cmd === 'menu') {
         const isOwner = isOwnerOrAdmin(userId, role);
