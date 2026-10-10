@@ -685,6 +685,158 @@ async function renderLineImage(lineResults) {
     return await sharp(Buffer.from(fullSvg)).png().toBuffer();
 }
 
+async function renderSparkImage(parsedNodes, analysisSummary) {
+    reloadConfig();
+    const style = config.card_style || {};
+    const font = style.font_family || "'Microsoft YaHei', sans-serif";
+    const monoFont = style.mono_font_family || "'Consolas', 'Courier New', monospace";
+    const doodle = getRandomDoodle();
+
+    const padding = 46;
+    const width = 760;
+    const headerHeight = 114;
+    const nodeCardHeight = 180;
+    const totalHeight = headerHeight + (parsedNodes.length * (nodeCardHeight + 20)) + 160;
+
+    let nodesSvg = '';
+    parsedNodes.forEach((node, idx) => {
+        const y = headerHeight + idx * (nodeCardHeight + 20);
+        const cardBox = drawPencilBox(0, 0, 668, nodeCardHeight, {
+            roughness: 1.6,
+            bowing: 1.1,
+            stroke: node.tps >= 19.5 ? '#98dfaf' : '#fbe285',
+            strokeWidth: 1.8,
+            seed: 60 + idx * 7,
+            fill: '#151922'
+        });
+
+        // 世界实体简要
+        const worldsText = (node.worlds || []).slice(0, 3).map(w => `${w.name}: ${w.players}人/${w.entities}实体/${w.chunks}区块`).join(' | ');
+
+        nodesSvg += `
+        <g transform="translate(${padding}, ${y})">
+            ${cardBox}
+            <circle cx="28" cy="34" r="6" fill="${node.tps >= 19.5 ? '#98dfaf' : '#fbe285'}"/>
+            <text x="46" y="40" fill="#f8fafc" font-size="18" font-family="${font}" font-weight="900">${node.serverName}</text>
+            <text x="640" y="38" fill="#94a3b8" font-size="12" font-family="${monoFont}" font-weight="bold" text-anchor="end">健康度: ${node.healthRating}</text>
+
+            <line x1="24" y1="58" x2="644" y2="58" stroke="#334155" stroke-dasharray="4,4" stroke-width="1.2"/>
+
+            <!-- 核心参数 -->
+            <text x="32" y="90" fill="#cbd5e1" font-size="14" font-family="${monoFont}">• TPS: <tspan fill="${node.tps >= 19.5 ? '#98dfaf' : '#f87171'}" font-weight="bold">${node.tps.toFixed(2)}</tspan></text>
+            <text x="180" y="90" fill="#cbd5e1" font-size="14" font-family="${monoFont}">• MSPT: <tspan fill="${node.mspt < 40 ? '#98dfaf' : '#fbe285'}" font-weight="bold">${node.mspt}ms</tspan></text>
+            <text x="340" y="90" fill="#cbd5e1" font-size="14" font-family="${monoFont}">• CPU: <tspan fill="#94a3b8">${node.cpuProcess}%</tspan></text>
+            <text x="480" y="90" fill="#cbd5e1" font-size="14" font-family="${monoFont}">• 内存: <tspan fill="#94a3b8">${node.memPercent}%</tspan></text>
+
+            <!-- 负载真相 -->
+            <text x="32" y="126" fill="#94a3b8" font-size="12" font-family="${font}">🔍 负载: ${worldsText || '主世界正常运行'}</text>
+            <text x="32" y="154" fill="#64748b" font-size="11" font-family="${monoFont}">REPORT: ${node.cleanUrl || '无独立报告链接'}</text>
+        </g>
+        `;
+    });
+
+    const fullSvg = `
+    <svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${totalHeight}" viewBox="0 0 ${width} ${totalHeight}">
+        <defs>
+            <linearGradient id="blackPaper" x1="0%" y1="0%" x2="0%" y2="100%">
+                <stop offset="0%" stop-color="#101217"/>
+                <stop offset="50%" stop-color="#13161c"/>
+                <stop offset="100%" stop-color="#0f1115"/>
+            </linearGradient>
+        </defs>
+
+        <rect width="100%" height="100%" fill="url(#blackPaper)"/>
+        ${renderBlackJournalPaper(width, totalHeight)}
+
+        <!-- 顶部手绘标题 -->
+        <g transform="translate(${padding}, 36)">
+            ${drawPencilBox(0, 0, 420, 56, { roughness: 2.0, bowing: 1.5, stroke: '#e2e8f0', strokeWidth: 2.0, seed: 18 })}
+            <text x="22" y="36" fill="#fbe285" font-size="18" font-family="${monoFont}" font-weight="900">&gt;&gt;</text>
+            <text x="56" y="36" fill="#f8fafc" font-size="19" font-family="${font}" font-weight="900" letter-spacing="1">FreeCore // Spark 性能体检看板</text>
+            <text x="398" y="34" fill="#94a3b8" font-size="12" font-family="${monoFont}" font-weight="bold" text-anchor="end">PROFILER</text>
+        </g>
+
+        <!-- 顶部右侧状态便签 -->
+        <g transform="translate(488, 36)">
+            ${drawPencilBox(0, 0, 224, 56, { roughness: 1.8, bowing: 1.2, stroke: '#64748b', strokeWidth: 1.6, seed: 48, fill: '#141720' })}
+            <circle cx="20" cy="28" r="4" fill="#98dfaf"/>
+            <text x="32" y="32" fill="#98dfaf" font-size="12" font-family="${monoFont}" font-weight="900">SPARK : 15s SAMPLED</text>
+            <text x="206" y="32" fill="#94a3b8" font-size="11" font-family="${monoFont}" font-weight="bold" text-anchor="end">&gt;&gt; DUAL</text>
+            <text x="20" y="47" fill="#64748b" font-size="10" font-family="${monoFont}">TECH &amp; SURVIVAL</text>
+        </g>
+
+        <!-- 节点报告卡片 -->
+        ${nodesSvg}
+
+        <!-- 底部小可评语与处方便签 -->
+        <g transform="translate(${padding}, ${totalHeight - 120})">
+            ${drawPencilBox(0, 0, 420, 84, { roughness: 1.5, bowing: 1.0, stroke: '#94a3b8', strokeWidth: 1.4, seed: 99, fill: '#141720' })}
+            <text x="20" y="28" fill="#fbe285" font-size="13" font-family="${font}" font-weight="bold">小可的体检处方 💡</text>
+            <text x="20" y="52" fill="#cbd5e1" font-size="12" font-family="${font}">${analysisSummary.slice(0, 36) || '双服运行良好，请留意生电服强加载区块。'}</text>
+            <text x="20" y="70" fill="#94a3b8" font-size="11" font-family="${font}">详细诊断代码已单独私发，请注意坐标保密哦~</text>
+        </g>
+
+        <!-- 右下角小可贴纸 -->
+        ${doodle ? `
+        <g transform="translate(510, ${totalHeight - 150})">
+            <image href="data:image/png;base64,${doodle.base64}" x="0" y="0" width="140" height="140" />
+        </g>
+        ` : ''}
+    </svg>
+    `;
+
+    return await sharp(Buffer.from(fullSvg)).png().toBuffer();
+}
+
+function parseSparkRaw(rawReport) {
+    const nodes = [];
+    const sections = rawReport.split('====================');
+    for (const sec of sections) {
+        if (!sec.trim()) continue;
+        const sNameMatch = sec.match(/节点:\s*([^】\n]+)/);
+        const serverName = sNameMatch ? sNameMatch[1].trim() : 'Minecraft 子服';
+
+        const urlMatch = sec.match(/https:\/\/spark\.lucko\.me\/([a-zA-Z0-9]+)/);
+        const urlCode = urlMatch ? urlMatch[1] : '';
+        const cleanUrl = urlCode ? `spark.lucko.me/${urlCode}` : '';
+
+        const tpsMatch = sec.match(/TPS=([0-9.]+)/);
+        const tps = tpsMatch ? parseFloat(tpsMatch[1]) : 20.0;
+
+        const msptMatch = sec.match(/MSPT=([0-9.]+)ms/);
+        const mspt = msptMatch ? parseFloat(msptMatch[1]) : 5.0;
+
+        const cpuMatch = sec.match(/进程CPU=([0-9.]+)%/);
+        const cpuProcess = cpuMatch ? cpuMatch[1] : '5.0';
+
+        const memMatch = sec.match(/\(([0-9.]+)%\)/);
+        const memPercent = memMatch ? memMatch[1] : '30.0';
+
+        const worlds = [];
+        const wRegex = /世界\s*\[([^\]]+)\]:\s*在线=(\d+)人,\s*实体=(\d+)个,\s*加载区块=(\d+)个/g;
+        let wm;
+        while ((wm = wRegex.exec(sec)) !== null) {
+            worlds.push({ name: wm[1], players: wm[2], entities: wm[3], chunks: wm[4] });
+        }
+
+        let healthRating = '极佳 (S)';
+        if (tps < 18 || mspt > 45) healthRating = '良好 (A)';
+        if (tps < 15 || mspt > 50) healthRating = '重载 (B)';
+
+        nodes.push({
+            serverName,
+            cleanUrl,
+            tps,
+            mspt,
+            cpuProcess,
+            memPercent,
+            worlds,
+            healthRating
+        });
+    }
+    return nodes;
+}
+
 // 5. Redis 发送器与接收器 (中枢语言互通)
 // ==========================================
 let redisPub = null;
@@ -802,10 +954,24 @@ ${rawReport}
     return stripMarkdown(`【Spark 性能采样报告（原数据）】\n${rawReport}`);
 }
 
+function sendPrivateImage(userId, base64Png) {
+    if (!napcatWs || napcatWs.readyState !== WebSocket.OPEN) return;
+    const payload = {
+        action: 'send_private_msg',
+        params: {
+            user_id: Number(userId),
+            message: [
+                { type: 'image', data: { file: `base64://${base64Png}` } }
+            ]
+        },
+        echo: `priv_img_${userId}_${Date.now()}`
+    };
+    napcatWs.send(JSON.stringify(payload));
+}
+
 function sendPrivateMessage(userId, text) {
     if (!napcatWs || napcatWs.readyState !== WebSocket.OPEN) return;
     const cleanText = stripMarkdown(text);
-    // NapCat 在 messagePostFormat=array 规范下，必须以 text segment 数组形式发送！
     const payload = {
         action: 'send_private_msg',
         params: {
@@ -817,7 +983,7 @@ function sendPrivateMessage(userId, text) {
         echo: `priv_spark_${userId}_${Date.now()}`
     };
     napcatWs.send(JSON.stringify(payload));
-    log(`[私聊发送 ${userId}] Spark 诊断报告已私发成功！`);
+    log(`[私聊发送 ${userId}] Spark 文本通知已私发成功！`);
 }
 
 function connectRedis() {
@@ -1467,13 +1633,25 @@ async function handleCommand(cmd, args, event, isGroup, groupId, userId, role) {
         const tips = `好哒！小可已启动游戏服 ${seconds} 秒 Spark 深度性能采样与链路分析！诊断结果正在生成中...(๑•̀ㅂ•́)و✧`;
         sendQuickReply(event, tips);
 
-        // Asynchronous profiling, analysis and private dispatch
+        // Asynchronous profiling, analysis, pencil chart rendering and clean link dispatch
         (async () => {
             try {
                 const rawReport = await queryMcTool(`spark(start, ${seconds})`, (seconds + 20) * 1000);
                 const senderName = event.sender?.nickname || '服主/管理';
                 const finalAnalysis = await analyzeSparkWithLlm(rawReport, senderName);
-                sendPrivateMessage(userId, finalAnalysis);
+
+                // 1. 解析双服采样节点数据并渲染手绘日系黑皮纸体检图卡
+                const parsedNodes = parseSparkRaw(rawReport);
+                const chartImg = await renderSparkImage(parsedNodes, finalAnalysis);
+                sendPrivateImage(userId, chartImg.toString('base64'));
+
+                // 2. 紧接着私发一条不带“https://”的纯净报告代码链接，绝对不触发腾讯风控拦截！
+                let cleanLinksMsg = `【Spark 详细诊断报告代号 (安全无协议链接)】\n`;
+                for (const node of parsedNodes) {
+                    cleanLinksMsg += `• ${node.serverName}: ${node.cleanUrl || '暂无外链'}\n`;
+                }
+                cleanLinksMsg += `\n💡 提示: 复制上方域名在浏览器直接打开即可查验火焰图与方法耗时！`;
+                sendPrivateMessage(userId, cleanLinksMsg);
             } catch (err) {
                 log(`[Spark任务失败] ${err.message}`);
                 sendPrivateMessage(userId, `【Spark 诊断提醒】后台性能采样出现异常: ${err.message}`);
