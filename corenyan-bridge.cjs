@@ -694,15 +694,16 @@ async function renderSparkImage(parsedNodes, analysisSummary) {
     const doodle = getRandomDoodle();
 
     const padding = 46;
-    const width = 760;
+    const width = 840;
+    const cardWidth = width - padding * 2; // 748
     const headerHeight = 114;
-    const nodeCardHeight = 180;
+    const nodeCardHeight = 200;
     const totalHeight = headerHeight + (parsedNodes.length * (nodeCardHeight + 20)) + 160;
 
     let nodesSvg = '';
     parsedNodes.forEach((node, idx) => {
         const y = headerHeight + idx * (nodeCardHeight + 20);
-        const cardBox = drawPencilBox(0, 0, 668, nodeCardHeight, {
+        const cardBox = drawPencilBox(0, 0, cardWidth, nodeCardHeight, {
             roughness: 1.6,
             bowing: 1.1,
             stroke: node.tps >= 19.5 ? '#98dfaf' : '#fbe285',
@@ -711,27 +712,28 @@ async function renderSparkImage(parsedNodes, analysisSummary) {
             fill: '#151922'
         });
 
-        // 世界实体简要
-        const worldsText = (node.worlds || []).slice(0, 3).map(w => `${w.name}: ${w.players}人/${w.entities}实体/${w.chunks}区块`).join(' | ');
+        // 世界实体简要：生电服往往世界名字很长且数量多，分行或截取优雅展示
+        const worldLines = (node.worlds || []).slice(0, 3).map(w => `${w.name}: ${w.players}人 / ${w.entities}实体 / ${w.chunks}区块`);
 
         nodesSvg += `
         <g transform="translate(${padding}, ${y})">
             ${cardBox}
             <circle cx="28" cy="34" r="6" fill="${node.tps >= 19.5 ? '#98dfaf' : '#fbe285'}"/>
             <text x="46" y="40" fill="#f8fafc" font-size="18" font-family="${font}" font-weight="900">${node.serverName}</text>
-            <text x="640" y="38" fill="#94a3b8" font-size="12" font-family="${monoFont}" font-weight="bold" text-anchor="end">健康度: ${node.healthRating}</text>
+            <text x="${cardWidth - 28}" y="38" fill="#94a3b8" font-size="12" font-family="${monoFont}" font-weight="bold" text-anchor="end">健康度: ${node.healthRating}</text>
 
-            <line x1="24" y1="58" x2="644" y2="58" stroke="#334155" stroke-dasharray="4,4" stroke-width="1.2"/>
+            <line x1="24" y1="56" x2="${cardWidth - 24}" y2="56" stroke="#334155" stroke-dasharray="4,4" stroke-width="1.2"/>
 
             <!-- 核心参数 -->
-            <text x="32" y="90" fill="#cbd5e1" font-size="14" font-family="${monoFont}">• TPS: <tspan fill="${node.tps >= 19.5 ? '#98dfaf' : '#f87171'}" font-weight="bold">${node.tps.toFixed(2)}</tspan></text>
-            <text x="180" y="90" fill="#cbd5e1" font-size="14" font-family="${monoFont}">• MSPT: <tspan fill="${node.mspt < 40 ? '#98dfaf' : '#fbe285'}" font-weight="bold">${node.mspt}ms</tspan></text>
-            <text x="340" y="90" fill="#cbd5e1" font-size="14" font-family="${monoFont}">• CPU: <tspan fill="#94a3b8">${node.cpuProcess}%</tspan></text>
-            <text x="480" y="90" fill="#cbd5e1" font-size="14" font-family="${monoFont}">• 内存: <tspan fill="#94a3b8">${node.memPercent}%</tspan></text>
+            <text x="32" y="86" fill="#cbd5e1" font-size="14" font-family="${monoFont}">• TPS: <tspan fill="${node.tps >= 19.5 ? '#98dfaf' : '#f87171'}" font-weight="bold">${node.tps.toFixed(2)}</tspan></text>
+            <text x="190" y="86" fill="#cbd5e1" font-size="14" font-family="${monoFont}">• MSPT: <tspan fill="${node.mspt < 40 ? '#98dfaf' : '#fbe285'}" font-weight="bold">${node.mspt}ms</tspan></text>
+            <text x="360" y="86" fill="#cbd5e1" font-size="14" font-family="${monoFont}">• CPU: <tspan fill="#94a3b8">${node.cpuProcess}%</tspan></text>
+            <text x="520" y="86" fill="#cbd5e1" font-size="14" font-family="${monoFont}">• 内存: <tspan fill="#94a3b8">${node.memPercent}%</tspan></text>
 
-            <!-- 负载真相 -->
-            <text x="32" y="126" fill="#94a3b8" font-size="12" font-family="${font}">🔍 负载: ${worldsText || '主世界正常运行'}</text>
-            <text x="32" y="154" fill="#64748b" font-size="11" font-family="${monoFont}">REPORT: ${node.cleanUrl || '无独立报告链接'}</text>
+            <!-- 负载真相 (支持两行排版，彻底防止长字段越界) -->
+            <text x="32" y="118" fill="#94a3b8" font-size="12" font-family="${font}">🔍 负载: ${worldLines[0] || '主世界正常运行'}</text>
+            ${worldLines.length > 1 ? `<text x="76" y="142" fill="#64748b" font-size="11" font-family="${font}">${worldLines.slice(1).join(' | ')}</text>` : ''}
+            <text x="32" y="172" fill="#64748b" font-size="11" font-family="${monoFont}">REPORT: ${node.cleanUrl || '无独立报告链接'}</text>
         </g>
         `;
     });
