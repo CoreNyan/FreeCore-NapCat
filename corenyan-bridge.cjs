@@ -798,11 +798,12 @@ ${rawReport}
 function sendPrivateMessage(userId, text) {
     if (!napcatWs || napcatWs.readyState !== WebSocket.OPEN) return;
     const cleanText = stripMarkdown(text);
+    // 直接发送原始纯文本字符串，避免 NapCat 将结构数组误打包为 QQ 客户端不识别的 Ark/图文卡片导致“该消息类型暂不支持查看”
     const payload = {
         action: 'send_private_msg',
         params: {
             user_id: Number(userId),
-            message: [{ type: 'text', data: { text: cleanText } }]
+            message: cleanText
         },
         echo: `priv_spark_${userId}_${Date.now()}`
     };
@@ -1189,18 +1190,20 @@ async function handleOneBotNotice(event) {
             eventDesc = `【群事件·解禁】管理员(${operatorId}) 解除了 用户(${userId}) 的禁言。`;
         }
     } else if (noticeType === 'group_increase') {
-        eventDesc = `【群事件·新群友入群】新人(${userId}) 加入了群聊【MI社】！`;
+        const groupName = config.groups?.[String(groupId)]?.name || event.group_name || `群${groupId}`;
+        eventDesc = `【群事件·新群友入群】新人(${userId}) 加入了群聊【${groupName}】！`;
     }
 
     if (!eventDesc) return;
 
     log(`[群事件广播至中枢] ${eventDesc}`);
 
+    const gName = config.groups?.[String(groupId)]?.name || event.group_name || `群${groupId}`;
     const inbound = {
         platform: 'qq',
         channel: 'qq_group',
         group_id: groupId || 516368088,
-        group_name: 'MI社',
+        group_name: gName,
         user_id: userId || operatorId || 0,
         nickname: `[系统事件]`,
         role: 'system',
@@ -1383,19 +1386,13 @@ async function handleCommand(cmd, args, event, isGroup, groupId, userId, role) {
                 const active = isModuleAllowed(k, isGroup, groupId, userId);
                 desc += `- ${k} (${v.name}): ${active ? '🟢 开启' : '🔴 关闭'}\n`;
             }
-            desc += `\n【管理指令】:\n/module <模块名> on/off [本群生效]`;
+            desc += `\n【管理指令】:\n• /module all on/off  (一键开启/关闭本群全部模块)\n• /module <模块名> on/off  (单独控制)`;
             sendQuickReply(event, desc);
             return true;
         }
 
         const targetModKey = args[0].toLowerCase();
         const action = args[1] ? args[1].toLowerCase() : '';
-        const targetMod = config.modules[targetModKey];
-
-        if (!targetMod) {
-            sendQuickReply(event, `未找到模块: ${targetModKey}。可用模块: ${Object.keys(config.modules).join(', ')}`);
-            return true;
-        }
 
         if (!isGroup) {
             sendQuickReply(event, '该指令请在对应QQ群内执行，以控制对应群聊的模块开关。');
@@ -1403,6 +1400,43 @@ async function handleCommand(cmd, args, event, isGroup, groupId, userId, role) {
         }
 
         const gId = Number(groupId);
+
+        // 一键全部开启 / 全部关闭: /module all on / /module all off
+        if (targetModKey === 'all' || targetModKey === '全部') {
+            if (action === 'on' || action === '开启' || action === 'enable') {
+                for (const [k, mod] of Object.entries(config.modules)) {
+                    if (mod.denied_groups) {
+                        mod.denied_groups = mod.denied_groups.filter(id => id !== gId);
+                    }
+                    if (mod.allowed_groups && !mod.allowed_groups.includes(gId)) {
+                        mod.allowed_groups.push(gId);
+                    }
+                }
+                saveConfig();
+                sendQuickReply(event, `好耶！小可已为本群 (${gId}) 一键开启全部功能模块！随时为你服务~(๑>◡<๑)`);
+                return true;
+            } else if (action === 'off' || action === '关闭' || action === 'disable') {
+                for (const [k, mod] of Object.entries(config.modules)) {
+                    if (!mod.denied_groups) mod.denied_groups = [];
+                    if (!mod.denied_groups.includes(gId)) mod.denied_groups.push(gId);
+                    if (mod.allowed_groups) {
+                        mod.allowed_groups = mod.allowed_groups.filter(id => id !== gId);
+                    }
+                }
+                saveConfig();
+                sendQuickReply(event, `收到！已为本群 (${gId}) 一键关闭全部功能模块，小可将保持完全潜水休眠。`);
+                return true;
+            } else {
+                sendQuickReply(event, '用法: /module all on (一键全开) 或 /module all off (一键全关)');
+                return true;
+            }
+        }
+
+        const targetMod = config.modules[targetModKey];
+        if (!targetMod) {
+            sendQuickReply(event, `未找到模块: ${targetModKey}。可用模块: all, ${Object.keys(config.modules).join(', ')}`);
+            return true;
+        }
         if (action === 'on' || action === '开启' || action === 'enable') {
             if (targetMod.denied_groups) {
                 targetMod.denied_groups = targetMod.denied_groups.filter(id => id !== gId);
