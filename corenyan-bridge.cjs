@@ -1641,10 +1641,13 @@ async function handleCommand(cmd, args, event, isGroup, groupId, userId, role) {
                 const senderName = event.sender?.nickname || '服主/管理';
                 const finalAnalysis = await analyzeSparkWithLlm(rawReport, senderName);
 
-                // 1. 将大模型生成的纯文本分析（已严格剥离任何 URL 和 Markdown）私聊发送给服主
+                // 1. 解析双服采样节点数据
+                const parsedNodes = parseSparkRaw(rawReport);
+
+                // 2. 将大模型生成的纯文本分析（已严格剥离任何 URL 和 Markdown）私聊发送给服主
                 sendPrivateMessage(userId, finalAnalysis);
 
-                // 2. 紧接着私发一条不带“https://”的纯净报告代码链接，绝对不触发腾讯风控拦截！
+                // 3. 紧接着私发一条不带“https://”的纯净报告代码链接，绝对不触发腾讯风控拦截！
                 let cleanLinksMsg = `【Spark 详细诊断报告代号 (安全无协议链接)】\n`;
                 for (const node of parsedNodes) {
                     cleanLinksMsg += `• ${node.serverName}: ${node.cleanUrl || '暂无外链'}\n`;
@@ -1652,7 +1655,7 @@ async function handleCommand(cmd, args, event, isGroup, groupId, userId, role) {
                 cleanLinksMsg += `\n💡 提示: 复制上方域名在浏览器直接打开即可查验火焰图与方法耗时！`;
                 sendPrivateMessage(userId, cleanLinksMsg);
 
-                // 3. 渲染并私发手绘体检图卡
+                // 4. 渲染并私发手绘体检图卡
                 const chartImg = await renderSparkImage(parsedNodes, finalAnalysis);
                 sendPrivateImage(userId, chartImg.toString('base64'));
             } catch (err) {
