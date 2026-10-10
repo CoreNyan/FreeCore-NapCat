@@ -939,9 +939,9 @@ ${rawReport}
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({
-                model: 'glm-5.3-flash',
+                model: 'glm-4-flash',
                 temperature: 0.7,
-                max_tokens: 2000,
+                max_tokens: 1500,
                 messages: [{ role: 'user', content: prompt }]
             })
         });
@@ -949,7 +949,7 @@ ${rawReport}
         const data = await res.json();
         if (data.choices && data.choices[0] && data.choices[0].message) {
             const content = data.choices[0].message.content.trim();
-            return stripMarkdown(content);
+            if (content) return stripMarkdown(content);
         }
     } catch (e) {
         log('Spark LLM analysis error:', e.message);
