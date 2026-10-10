@@ -211,6 +211,13 @@ function isOwnerOrAdmin(userId, role) {
     return false;
 }
 
+function isBlacklisted(userId) {
+    if (!userId) return false;
+    const list = config.permissions?.blacklist || [];
+    const uNum = Number(userId);
+    return list.some(item => Number(item) === uNum);
+}
+
 // ==========================================
 // 3. 手绘铅笔质感生成函数与随机小可表情包加载
 // ==========================================
@@ -1083,6 +1090,12 @@ async function handleOneBotMessage(event) {
     const rawMsg = (event.raw_message || '').trim();
     const role = event.sender?.role || 'member';
 
+    // 核心安全红线：若发送者处于黑名单，纯程序级彻底屏蔽，不执行任何指令也不送入LLM！
+    if (isBlacklisted(userId)) {
+        log(`[黑名单拦截] 屏蔽来自黑名单用户 (${userId}) 的所有发言/指令。`);
+        return;
+    }
+
     let text = '';
     let isAt = false;
     const imageUrls = [];
@@ -1158,6 +1171,11 @@ async function handleOneBotNotice(event) {
     const userId = event.user_id;
     const operatorId = event.operator_id;
 
+    // 黑名单用户产生的事件一律不送入中枢
+    if (isBlacklisted(userId) || isBlacklisted(operatorId)) {
+        return;
+    }
+
     log(`[QQ事件通知] 类型=${noticeType}/${subType}, 群=${groupId || '无'}, 用户=${userId}`);
 
     // 只处理允许的群
@@ -1218,6 +1236,97 @@ async function handleOneBotNotice(event) {
     };
 
     sendRedisCmd(redisPub, 'PUBLISH', 'freecore:agent:qq:inbound', JSON.stringify(inbound));
+}
+
+// OneBot 11 请求处理器 (加好友、加群申请、邀请加群)
+async function handleOneBotRequest(event) {
+    reloadConfig();
+    const requestType = event.request_type;
+    const subType = event.sub_type;
+    const flag = event.flag;
+    const userId = event.user_id;
+    const groupId = event.group_id;
+    const comment = event.comment || '';
+
+    log(`[QQ请求审批] 类型=${requestType}/${subType}, 用户=${userId}, 群=${groupId || '无'}, 验证信息="${comment}"`);
+
+    // 1. 群聊相关请求
+    if (requestType === 'group') {
+        const autoCfg = config.auto_approve || {};
+
+        // 场景 A: 别人邀请小可进群 (sub_type === 'invite')
+        if (subType === 'invite') {
+            const isOwner = config.permissions?.owners?.includes(Number(userId));
+            const inviteCfg = autoCfg.group_invite || {};
+
+            if (inviteCfg.enabled) {
+                // 如果配置了仅限 owner 邀请，或者邀请者确实是服主/管理
+                if (!inviteCfg.owner_only || isOwner) {
+                    log(`[群邀请自动同意] 收到来自服主/授信管理 (${userId}) 邀请小可加入群聊 (${groupId})，立即自动同意！`);
+                    sendNapCatApi('set_group_add_request', {
+                        flag: flag,
+                        sub_type: 'invite',
+                        approve: true
+                    });
+                    return;
+                } else {
+                    log(`[群邀请拦截] 用户 (${userId}) 尝试邀请小可加入群 (${groupId})，非服主账号，已忽略。`);
+                    return;
+                }
+            }
+        }
+
+        // 场景 B: 玩家申请加入群聊 (sub_type === 'add')
+        if (subType === 'add') {
+            const reqCfg = autoCfg.group_request || {};
+            if (reqCfg.enabled) {
+                if (isBlacklisted(userId)) {
+                    log(`[加群审批拒绝] 申请者 (${userId}) 属于黑名单用户，自动拒绝入群 (${groupId})！`);
+                    sendNapCatApi('set_group_add_request', {
+                        flag: flag,
+                        sub_type: 'add',
+                        approve: false,
+                        reason: '很抱歉，你已被列入黑名单，拒绝入群。'
+                    });
+                    return;
+                } else {
+                    log(`[加群审批通过] 申请者 (${userId}) 身份正常，自动放行通过入群 (${groupId})！`);
+                    sendNapCatApi('set_group_add_request', {
+                        flag: flag,
+                        sub_type: 'add',
+                        approve: true
+                    });
+                    return;
+                }
+            }
+        }
+    }
+
+    // 2. 好友申请请求 (request_type === 'friend')
+    if (requestType === 'friend') {
+        if (isBlacklisted(userId)) {
+            log(`[好友申请拒绝] 申请人 (${userId}) 在黑名单中，自动拒绝添加好友。`);
+            sendNapCatApi('set_friend_add_request', {
+                flag: flag,
+                approve: false
+            });
+        } else {
+            log(`[好友申请通过] 申请人 (${userId}) 身份正常，自动同意加为好友。`);
+            sendNapCatApi('set_friend_add_request', {
+                flag: flag,
+                approve: true
+            });
+        }
+    }
+}
+
+function sendNapCatApi(action, params) {
+    if (!napcatWs || napcatWs.readyState !== WebSocket.OPEN) return;
+    napcatWs.send(JSON.stringify({
+        action,
+        params,
+        echo: `req_approve_${Date.now()}`
+    }));
 }
 
 // 指令路由器
@@ -1462,6 +1571,73 @@ async function handleCommand(cmd, args, event, isGroup, groupId, userId, role) {
         }
     }
 
+    // 5.1 /blacklist 或 /黑名单 指令 (仅服主与管理可用)
+    const blMod = config.modules.blacklist;
+    if (blMod && (cmd === blMod.command || (blMod.aliases && blMod.aliases.includes(cmd)))) {
+        const isPermitted = isOwnerOrAdmin(userId, role);
+        if (!isPermitted) {
+            sendQuickReply(event, '哼！你没有管理员权限，不能查看或操作小可的黑名单！(｀・ω・´)');
+            return true;
+        }
+
+        if (!config.permissions.blacklist) config.permissions.blacklist = [];
+
+        if (args.length === 0) {
+            const list = config.permissions.blacklist;
+            let msg = `【小可屏蔽黑名单列表】(共 ${list.length} 人)\n`;
+            if (list.length === 0) {
+                msg += `• 当前暂无黑名单人员，大家都是好孩子~(๑•̀ㅂ•́)و✧\n`;
+            } else {
+                list.forEach((u, idx) => {
+                    msg += `• [${idx + 1}] QQ: ${u}\n`;
+                });
+            }
+            msg += `\n【管理指令】:\n• /blacklist add <QQ号>  (拉黑)\n• /blacklist remove <QQ号>  (移出黑名单)`;
+            sendQuickReply(event, msg);
+            return true;
+        }
+
+        const sub = args[0].toLowerCase();
+        const targetQq = args[1] ? args[1].trim() : '';
+
+        if (sub === 'add' || sub === '添加' || sub === '拉黑') {
+            const tNum = Number(targetQq);
+            if (!tNum || isNaN(tNum)) {
+                sendQuickReply(event, '用法错误！请指定有效的QQ号: /blacklist add <QQ号>');
+                return true;
+            }
+            if (config.permissions.owners.includes(tNum)) {
+                sendQuickReply(event, '喂喂！服主大人怎么可能进黑名单啦！(ﾟДﾟ*)');
+                return true;
+            }
+            if (!config.permissions.blacklist.includes(tNum)) {
+                config.permissions.blacklist.push(tNum);
+                saveConfig();
+                sendQuickReply(event, `好哒！已将用户 (${tNum}) 关进黑名单小黑屋！小可之后将彻底无视他！(¬_¬)`);
+            } else {
+                sendQuickReply(event, `用户 (${tNum}) 本来就在黑名单里啦~`);
+            }
+            return true;
+        } else if (sub === 'del' || sub === 'remove' || sub === '移出' || sub === '解除') {
+            const tNum = Number(targetQq);
+            if (!tNum || isNaN(tNum)) {
+                sendQuickReply(event, '用法错误！请指定有效的QQ号: /blacklist remove <QQ号>');
+                return true;
+            }
+            if (config.permissions.blacklist.includes(tNum)) {
+                config.permissions.blacklist = config.permissions.blacklist.filter(id => Number(id) !== tNum);
+                saveConfig();
+                sendQuickReply(event, `已将用户 (${tNum}) 移出黑名单，恢复正常互动权限。`);
+            } else {
+                sendQuickReply(event, `用户 (${tNum}) 并不在黑名单里哦~`);
+            }
+            return true;
+        } else {
+            sendQuickReply(event, '用法错误！/blacklist 查看名单，/blacklist add <QQ号> 拉黑，/blacklist remove <QQ号> 解除');
+            return true;
+        }
+    }
+
     // 6. /help 或 /帮助 指令
     if (cmd === 'help' || cmd === '帮助' || cmd === 'bz' || cmd === 'menu') {
         const isOwner = isOwnerOrAdmin(userId, role);
@@ -1574,6 +1750,8 @@ function startGateway() {
                     handleOneBotMessage(event);
                 } else if (event.post_type === 'notice') {
                     handleOneBotNotice(event);
+                } else if (event.post_type === 'request') {
+                    handleOneBotRequest(event);
                 } else if (!event.post_type) {
                     // API action response
                     if (event.echo === 'check_friend_list') {

@@ -21,7 +21,18 @@
       2040266560,
       2842868264
     ],
-    "trust_admins": true
+    "trust_admins": true,
+    "blacklist": []
+  },
+  "auto_approve": {
+    "group_request": {
+      "enabled": true,
+      "reject_blacklisted": true
+    },
+    "group_invite": {
+      "enabled": true,
+      "owner_only": true
+    }
   },
   "groups": {
     "516368088": {
@@ -132,7 +143,26 @@
       ],
       "allow_private": true,
       "allowed_groups": [
-        516368088
+        516368088,
+        1127138554
+      ],
+      "denied_groups": [],
+      "allowed_users": [],
+      "denied_users": []
+    },
+    "blacklist": {
+      "name": "黑名单管理系统",
+      "description": "查看与管理小可黑名单人员，进黑名单者将被完全无视（服主与管理专用）",
+      "enabled": true,
+      "command": "blacklist",
+      "aliases": [
+        "hmd",
+        "黑名单"
+      ],
+      "allow_private": true,
+      "allowed_groups": [
+        516368088,
+        1127138554
       ],
       "denied_groups": [],
       "allowed_users": [],
