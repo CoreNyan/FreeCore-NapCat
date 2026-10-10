@@ -805,12 +805,14 @@ ${rawReport}
 function sendPrivateMessage(userId, text) {
     if (!napcatWs || napcatWs.readyState !== WebSocket.OPEN) return;
     const cleanText = stripMarkdown(text);
-    // 直接发送原始纯文本字符串，避免 NapCat 将结构数组误打包为 QQ 客户端不识别的 Ark/图文卡片导致“该消息类型暂不支持查看”
+    // NapCat 在 messagePostFormat=array 规范下，必须以 text segment 数组形式发送！
     const payload = {
         action: 'send_private_msg',
         params: {
             user_id: Number(userId),
-            message: cleanText
+            message: [
+                { type: 'text', data: { text: cleanText } }
+            ]
         },
         echo: `priv_spark_${userId}_${Date.now()}`
     };
