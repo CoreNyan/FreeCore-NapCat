@@ -465,10 +465,11 @@ async function renderStatusImage(serverStatuses, proxyData) {
 
         const playersText = isOnline ? `${s.data?.players?.online ?? 0} / ${s.data?.players?.max ?? 20} 人` : '- / - 人';
         const versionText = s.version_override || (isOnline ? (s.data?.version?.name ?? 'Paper 26.2') : '未知');
-        const tpsVal = s.default_tps || '20.0';
+        const tpsVal = s.live_tps !== undefined ? String(s.live_tps) : (s.default_tps || '20.0');
+        const tpsNum = parseFloat(tpsVal);
         
         const latencyMs = Number(s.latency) || 0;
-        const latencyColor = !isOnline ? '#ff9aa2' : (latencyMs <= 60 ? '#98dfaf' : (latencyMs <= 150 ? '#fbe285' : '#ff9aa2'));
+        const latencyColor = !isOnline ? '#ff9aa2' : ((latencyMs <= 60 && tpsNum >= 18.0) ? '#98dfaf' : ((latencyMs <= 150 && tpsNum >= 12.0) ? '#fbe285' : '#ff9aa2'));
         const latencyText = isOnline ? `${s.latency} ms` : '- ms';
         const pingTpsText = s.show_tps !== false ? `${latencyText} · ${tpsVal}` : latencyText;
 
@@ -1118,6 +1119,25 @@ function sendRedisCmd(socket, ...args) {
     socket.write(out);
 }
 
+async function fetchLiveTpsMap() {
+    const map = {};
+    try {
+        const raw = await queryMcTool('get_tps()', 1200);
+        if (raw && !raw.includes('查询超时')) {
+            const lines = raw.split(/\r?\n|====================/);
+            for (const line of lines) {
+                const m = line.trim().match(/^TPS_DATA\|([a-zA-Z0-9_-]+)\|([0-9.]+)\|([0-9.]+)/);
+                if (m) {
+                    map[m[1].toLowerCase()] = { tps: m[2], mspt: m[3] };
+                }
+            }
+        }
+    } catch (e) {
+        log('fetchLiveTpsMap error:', e.message);
+    }
+    return map;
+}
+
 function handleRedisOutbound(packet) {
     if (!napcatWs || napcatWs.readyState !== WebSocket.OPEN) {
         log('NapCat WS disconnected, cannot dispatch outbound reply.');
@@ -1134,12 +1154,17 @@ function handleRedisOutbound(packet) {
                 let imgBuf = null;
                 if (card_type === 'status') {
                     const proxyCfg = config.proxy || { host: '127.0.0.1', port: 25577, use_proxy_protocol: true };
-                    const proxyData = await pingJavaServer(proxyCfg.host, proxyCfg.port, proxyCfg.use_proxy_protocol !== false);
+                    const [proxyData, liveTpsMap] = await Promise.all([
+                        pingJavaServer(proxyCfg.host, proxyCfg.port, proxyCfg.use_proxy_protocol !== false),
+                        fetchLiveTpsMap()
+                    ]);
                     const serverList = (config.status_page && config.status_page.servers) ? config.status_page.servers : config.servers;
                     const results = [];
                     for (const srv of serverList) {
                         const res = await pingJavaServer(srv.host, srv.port, false);
-                        results.push({ ...srv, ...res });
+                        const srvKey = String(srv.id || '').toLowerCase();
+                        const liveTps = liveTpsMap[srvKey]?.tps;
+                        results.push({ ...srv, ...res, live_tps: liveTps });
                     }
                     imgBuf = await renderStatusImage(results, proxyData);
                 } else if (card_type === 'line') {
@@ -1513,15 +1538,21 @@ async function handleCommand(cmd, args, event, isGroup, groupId, userId, role) {
         log(`[指令 /status] 收到来自 ${userId} (群:${groupId}) 的查询请求，正在探测节点...`);
 
         const proxyCfg = config.proxy || { host: '127.0.0.1', port: 25577, use_proxy_protocol: true };
-        const proxyData = await pingJavaServer(proxyCfg.host, proxyCfg.port, proxyCfg.use_proxy_protocol !== false);
+        const [proxyData, liveTpsMap] = await Promise.all([
+            pingJavaServer(proxyCfg.host, proxyCfg.port, proxyCfg.use_proxy_protocol !== false),
+            fetchLiveTpsMap()
+        ]);
 
         const serverList = (config.status_page && config.status_page.servers) ? config.status_page.servers : config.servers;
         const results = [];
         for (const srv of serverList) {
             const res = await pingJavaServer(srv.host, srv.port, false);
+            const srvKey = String(srv.id || '').toLowerCase();
+            const liveTps = liveTpsMap[srvKey]?.tps;
             results.push({
                 ...srv,
-                ...res
+                ...res,
+                live_tps: liveTps
             });
         }
 
