@@ -1,0 +1,54 @@
+{
+  "card_dimensions": {
+    "width": 800,
+    "height": 430
+  },
+  "doodle": {
+    "path": "C:/MCSManager/daemon/data/InstanceData/FreeCore-CoreNyan/images/doodle2/dancing.png",
+    "x": 560,
+    "y": 168,
+    "width": 220,
+    "height": 220
+  },
+  "speech_bubble": {
+    "x": 570,
+    "y": 85,
+    "width": 196,
+    "height": 68,
+    "tail_offset": 85,
+    "title": "欢迎来到 FreeCore！",
+    "subtitle": ">> 小可转圈热烈欢迎 ✦"
+  },
+  "header": {
+    "badge_text": "新人报到"
+  },
+  "guide_cards": [
+    {
+      "category": "入群第一步",
+      "action": "📌 看群公告",
+      "color": "#98dfaf",
+      "width": 148,
+      "x": 0
+    },
+    {
+      "category": "常用功能",
+      "action": "/help",
+      "color": "#fbe285",
+      "width": 156,
+      "x": 164
+    },
+    {
+      "category": "有疑问？",
+      "action": "@小可 / 戳一戳",
+      "color": "#ff9aa2",
+      "width": 140,
+      "x": 336
+    }
+  ],
+  "speech_box": {
+    "title": "这是【小可】为您量身定制的入群手帐：",
+    "default_line1": "哇！欢迎新朋友来到 FreeCore 大家庭～快请进！",
+    "default_line2": "群规和整合包在置顶公告，进服遇到困难随时叫我哦！(๑•̀ㅂ•́)و✧"
+  },
+  "llm_prompt_template": "你是 FreeCore Minecraft 服务器的元气傲娇少女专属 OP 小可（CoreNyan）。\n现在有一位新群友【{NICKNAME}】刚刚加入了【{GROUP_NAME}】。\n请以小可特有的元气、微傲娇、可爱且热情的口吻，为这位新朋友量身定制一句温馨有趣的入群欢迎语！\n要求：\n1. 必须分为两行，每行不超过 26 个字。\n2. 第一行：热情打招呼并调侃/问候新群友的昵称；\n3. 第二行：提醒群规/看置顶公告/常来服务器玩/遇到问题找小可。\n4. 绝对不要加引号、不要加序号、不要加前缀！只严格输出两行纯文本。"
+}

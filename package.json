@@ -1,4 +1,4 @@
-﻿{
+{
   "name": "freecore-napcat",
   "version": "1.0.0",
   "description": "CoreNyan QQ NapCat Bridge and Anime Pencil Card Engine for FreeCore",
@@ -8,6 +8,8 @@
   },
   "dependencies": {
     "express": "^5.0.0",
+    "mysql2": "^3.24.5",
+    "roughjs": "^4.6.6",
     "sharp": "^0.35.5",
     "ws": "^8.18.3"
   },

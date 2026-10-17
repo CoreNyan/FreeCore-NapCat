@@ -16,6 +16,7 @@ const net = require('net');
 const dgram = require('dgram');
 const fs = require('fs');
 const path = require('path');
+const mysql = require('mysql2/promise');
 const sharp = require(path.join(__dirname, 'node_modules', 'sharp'));
 const rough = require(path.join(__dirname, 'node_modules', 'roughjs', 'bundled', 'rough.cjs.js'));
 const roughGen = rough.generator();
@@ -49,6 +50,79 @@ function saveConfig() {
 }
 
 let napcatWs = null;
+// OneBot API Promise helper with echo tracking
+const pendingOneBotRequests = new Map();
+function callOneBotApi(action, params = {}, timeoutMs = 4000) {
+    return new Promise((resolve) => {
+        if (!napcatWs || napcatWs.readyState !== WebSocket.OPEN) {
+            return resolve(null);
+        }
+        const echo = `call_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+        const timer = setTimeout(() => {
+            pendingOneBotRequests.delete(echo);
+            resolve(null);
+        }, timeoutMs);
+
+        pendingOneBotRequests.set(echo, { resolve, timer });
+        try {
+            napcatWs.send(JSON.stringify({ action, params, echo }));
+        } catch (e) {
+            clearTimeout(timer);
+            pendingOneBotRequests.delete(echo);
+            resolve(null);
+        }
+    });
+}
+
+// ==========================================
+// 0. 数据库连接池 (皮肤站 freecoreskin)
+// ==========================================
+const dbPool = mysql.createPool({
+    host: '127.0.0.1',
+    port: 3306,
+    user: 'LynnHMa',
+    password: 'nmNb666minecraft',
+    database: 'freecoreskin',
+    waitForConnections: true,
+    connectionLimit: 5,
+    queueLimit: 0,
+});
+
+async function queryBoundPlayerByQq(qq) {
+    if (!qq) return null;
+    const strQq = String(qq).trim();
+    try {
+        // 1. 优先从 user_qq_bindings 查找纯数字 QQ 号
+        const [rows] = await dbPool.query(
+            'SELECT p.name FROM user_qq_bindings b JOIN players p ON p.uid = b.user_id WHERE b.qq = ? LIMIT 1',
+            [strQq]
+        );
+        if (rows && rows.length > 0 && rows[0].name) {
+            return rows[0].name;
+        }
+
+        // 2. 匹配 users 表中以该 QQ 号注册的邮箱 (例如 2040266560@qq.com 或 qq_2040266560@...)
+        const [emailRows] = await dbPool.query(
+            'SELECT p.name FROM users u JOIN players p ON p.uid = u.uid WHERE u.email = ? OR u.email LIKE ? LIMIT 1',
+            [`${strQq}@qq.com`, `%${strQq}%`]
+        );
+        if (emailRows && emailRows.length > 0 && emailRows[0].name) {
+            return emailRows[0].name;
+        }
+
+        // 3. 兼容匹配 users 表的昵称
+        const [uRows] = await dbPool.query(
+            'SELECT p.name FROM users u JOIN players p ON p.uid = u.uid WHERE u.nickname = ? LIMIT 1',
+            [strQq]
+        );
+        if (uRows && uRows.length > 0 && uRows[0].name) {
+            return uRows[0].name;
+        }
+    } catch (e) {
+        log('[DB] 查询 QQ 绑定玩家失败:', e.message);
+    }
+    return null;
+}
 
 // ==========================================
 // 1. 网络与 Minecraft SLP 探测核心
@@ -686,6 +760,628 @@ async function renderLineImage(lineResults) {
     return await sharp(Buffer.from(fullSvg)).png().toBuffer();
 }
 
+
+// ==========================================
+// 玩家个人资料手绘黑卡渲染引擎 (/p 模块)
+// ==========================================
+
+async function renderCoreNyanEggCard() {
+    reloadConfig();
+    const style = config.card_style || {};
+    const font = style.font_family || "'Microsoft YaHei', sans-serif";
+    const monoFont = style.mono_font_family || "'Consolas', 'Courier New', monospace";
+    const doodle = getRandomDoodle();
+
+    const width = 800;
+    const height = 430;
+
+    // 1. Fetch tid 22 avatar directly from local skin server
+    let avBase64 = '';
+    const avSize = 104;
+    try {
+        const res = await fetch('http://127.0.0.1:25567/avatar/22');
+        const avatarRaw = Buffer.from(await res.arrayBuffer());
+        const roundedCorners = Buffer.from(`<svg><rect x="0" y="0" width="${avSize}" height="${avSize}" rx="20" ry="20"/></svg>`);
+        const avatarRounded = await sharp(avatarRaw)
+            .resize(avSize, avSize, { kernel: sharp.kernel.nearest })
+            .composite([{ input: roundedCorners, blend: 'dest-in' }])
+            .png()
+            .toBuffer();
+        avBase64 = avatarRounded.toString('base64');
+    } catch (e) {
+        log('[小可彩蛋头像获取失败]:', e.message);
+    }
+
+    const svg = `
+    <svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+            <linearGradient id="cardGrad" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="#0e131f" />
+                <stop offset="100%" stop-color="#080b12" />
+            </linearGradient>
+            <filter id="noiseFilter">
+                <feTurbulence type="fractalNoise" baseFrequency="0.8" numOctaves="3" stitchTiles="stitch" />
+                <feColorMatrix type="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 0.035 0" />
+            </filter>
+        </defs>
+
+        <rect width="${width}" height="${height}" fill="url(#cardGrad)" />
+        <rect width="${width}" height="${height}" filter="url(#noiseFilter)" />
+
+        <!-- Left Main Card (width: 524) -->
+        <g transform="translate(32, 30)">
+            ${drawPencilBox(0, 0, 524, 370, { roughness: 2.0, bowing: 1.4, stroke: '#f1f5f9', strokeWidth: 1.8, seed: 99 })}
+            
+            <!-- Avatar (No green border, tid 22 pixel avatar with rounded corners) -->
+            <g transform="translate(24, 24)">
+                <image href="data:image/png;base64,${avBase64}" x="0" y="0" width="${avSize}" height="${avSize}" />
+            </g>
+
+            <!-- Name and Status Header -->
+            <g transform="translate(148, 30)">
+                <text x="0" y="24" fill="#f8fafc" font-size="25" font-family="${font}" font-weight="900">小可 (CoreNyan)</text>
+                <text x="0" y="48" fill="#94a3b8" font-size="12" font-family="${monoFont}"># [EXCLUSIVE_OP] · 自由核心吉祥物</text>
+                
+                <!-- Status Badge -->
+                <rect x="0" y="60" width="70" height="24" rx="6" fill="#14291f" stroke="#98dfaf" stroke-width="1" />
+                <text x="35" y="77" fill="#98dfaf" font-size="12" font-family="${font}" font-weight="bold" text-anchor="middle">✔ 在线</text>
+                
+                <text x="82" y="77" fill="#cbd5e1" font-size="12" font-family="${font}">动态: 正在后台守护服务器呢~</text>
+                <text x="0" y="104" fill="#64748b" font-size="12" font-family="${font}">职务: <tspan fill="#fbe285" font-weight="bold">社区最高执行 OP</tspan>  |  算力: <tspan fill="#ff9aa2" font-weight="bold">∞ 满血运转</tspan></text>
+            </g>
+
+            <!-- Divider Line -->
+            <path d="M 24 156 L 500 156" stroke="#2a324b" stroke-width="1.5" stroke-dasharray="4 4" />
+
+            <!-- Stats Grid (3 columns) -->
+            <g transform="translate(24, 172)">
+                <!-- Bal Card: ∞ 无限大符号 -->
+                <g transform="translate(0, 0)">
+                    ${drawPencilBox(0, 0, 148, 68, { roughness: 1.4, bowing: 1.0, stroke: '#334155', strokeWidth: 1.2, fill: '#121624', seed: 31 })}
+                    <text x="12" y="24" fill="#94a3b8" font-size="11" font-family="${font}">控制台金库 (H币)</text>
+                    <text x="12" y="52" fill="#fbe285" font-size="24" font-family="${monoFont}" font-weight="bold">∞</text>
+                </g>
+
+                <!-- Registered Card -->
+                <g transform="translate(164, 0)">
+                    ${drawPencilBox(0, 0, 156, 68, { roughness: 1.4, bowing: 1.0, stroke: '#334155', strokeWidth: 1.2, fill: '#121624', seed: 33 })}
+                    <text x="12" y="24" fill="#94a3b8" font-size="11" font-family="${font}">服务上岗时间</text>
+                    <text x="12" y="52" fill="#cbd5e1" font-size="13" font-family="${monoFont}" font-weight="bold">2026-07-29</text>
+                </g>
+
+                <!-- Affection Card: 删除“傲娇”，仅保留 ❤ 100% -->
+                <g transform="translate(336, 0)">
+                    ${drawPencilBox(0, 0, 140, 68, { roughness: 1.4, bowing: 1.0, stroke: '#334155', strokeWidth: 1.2, fill: '#121624', seed: 35 })}
+                    <text x="12" y="24" fill="#94a3b8" font-size="11" font-family="${font}">本姑娘心情值</text>
+                    <text x="12" y="52" fill="#ff9aa2" font-size="20" font-family="${monoFont}" font-weight="bold">❤ 100%</text>
+                </g>
+            </g>
+
+            <!-- Impression speech box: 双行精细排版，绝不越界 -->
+            <g transform="translate(24, 258)">
+                ${drawPencilBox(0, 0, 476, 80, { roughness: 1.5, bowing: 1.0, stroke: '#475569', strokeWidth: 1.4, fill: '#141824', seed: 77 })}
+                <text x="16" y="26" fill="#98dfaf" font-size="12" font-family="${font}" font-weight="bold">小可的专属机密自白：</text>
+                <text x="16" y="47" fill="#e2e8f0" font-size="12.5" font-family="${font}">“哼！居然敢查本姑娘的户口？(¬_¬)”</text>
+                <text x="16" y="66" fill="#cbd5e1" font-size="12.5" font-family="${font}">“想偷看本姑娘的私密日记还早了一百年呢，大笨蛋！”</text>
+            </g>
+        </g>
+
+        <!-- Right Side: Speech Bubble & Doodle shifted down (Bubble: y=85, Doodle: y=168) -->
+        <g transform="translate(570, 85)">
+            ${drawPencilSpeechBubble(0, 0, 196, 68, 85, { seed: 105, stroke: '#f1f5f9', fill: '#181b24' })}
+            <text x="98" y="28" fill="#f8fafc" font-size="13" font-family="${font}" font-weight="900" text-anchor="middle">抓包！查我干嘛啦？</text>
+            <text x="98" y="48" fill="#ff9aa2" font-size="11" font-family="${font}" font-weight="bold" text-anchor="middle">&gt;&gt; 机密档案 · 拒绝外泄！</text>
+        </g>
+
+        ${doodle ? `
+        <g transform="translate(560, 168)">
+            <image href="data:image/png;base64,${doodle.base64}" x="0" y="0" width="220" height="220" />
+        </g>
+        ` : ''}
+    </svg>
+    `;
+
+    return await sharp(Buffer.from(svg)).png().toBuffer();
+}
+
+// ==========================================
+// 入群欢迎手绘黑卡渲染引擎 (dancing.png)
+// ==========================================
+// ==========================================
+// 入群欢迎手绘黑卡渲染引擎 (由 welcome-card.json 独立配置驱动)
+// ==========================================
+const WELCOME_CARD_CONFIG_PATH = path.join(__dirname, 'welcome-card.json');
+function loadWelcomeCardConfig() {
+    try {
+        if (fs.existsSync(WELCOME_CARD_CONFIG_PATH)) {
+            return JSON.parse(fs.readFileSync(WELCOME_CARD_CONFIG_PATH, 'utf8'));
+        }
+    } catch (e) {
+        log('[读取 welcome-card.json 失败]:', e.message);
+    }
+    return {};
+}
+
+async function renderWelcomeCard(memberData) {
+    reloadConfig();
+    const welcomeCfg = loadWelcomeCardConfig();
+    const style = config.card_style || {};
+    const font = style.font_family || "'Microsoft YaHei', sans-serif";
+    const monoFont = style.mono_font_family || "'Consolas', 'Courier New', monospace";
+
+    const {
+        nickname,
+        userId,
+        groupName,
+        qqLevel,
+        welcomeLine1,
+        welcomeLine2,
+        avatarBase64
+    } = memberData;
+
+    const dims = welcomeCfg.card_dimensions || { width: 800, height: 430 };
+    const width = dims.width || 800;
+    const height = dims.height || 430;
+
+    const doodleCfg = welcomeCfg.doodle || {
+        path: 'C:/MCSManager/daemon/data/InstanceData/FreeCore-CoreNyan/images/doodle2/dancing.png',
+        x: 560,
+        y: 168,
+        width: 220,
+        height: 220
+    };
+
+    let dancingBase64 = '';
+    try {
+        if (fs.existsSync(doodleCfg.path)) {
+            dancingBase64 = fs.readFileSync(doodleCfg.path).toString('base64');
+        }
+    } catch (e) {
+        log('[读取欢迎卡立绘失败]:', e.message);
+    }
+
+    const bubbleCfg = welcomeCfg.speech_bubble || {
+        x: 570,
+        y: 85,
+        width: 196,
+        height: 68,
+        tail_offset: 85,
+        title: '欢迎来到 FreeCore！',
+        subtitle: '>> 小可转圈热烈欢迎 ✦'
+    };
+
+    const headerCfg = welcomeCfg.header || {
+        badge_text: '✔ 新人报到',
+        steward_name: '小可 (CoreNyan)'
+    };
+
+    const guideCards = welcomeCfg.guide_cards || [
+        { category: '入群第一步', action: '📌 必看群公告', color: '#98dfaf', width: 148, x: 0 },
+        { category: '常用快捷指令', action: '/line · /status · /p', color: '#fbe285', width: 156, x: 164 },
+        { category: '互动小可', action: '@小可 / 戳一戳', color: '#ff9aa2', width: 140, x: 336 }
+    ];
+
+    const speechBoxCfg = welcomeCfg.speech_box || {
+        title: '小可为您量身定制的入群手帐：'
+    };
+
+    const avSize = 104;
+
+    const cardsSvg = guideCards.map((item, idx) => `
+        <g transform="translate(${item.x || (idx * 160)}, 0)">
+            ${drawPencilBox(0, 0, item.width || 150, 68, { roughness: 1.4, bowing: 1.0, stroke: '#334155', strokeWidth: 1.2, fill: '#121624', seed: 31 + idx * 2 })}
+            <text x="12" y="24" fill="#94a3b8" font-size="11" font-family="${font}">${item.category}</text>
+            <text x="12" y="52" fill="${item.color || '#98dfaf'}" font-size="13" font-family="${font}" font-weight="bold">${item.action}</text>
+        </g>
+    `).join('');
+
+    const svg = `
+    <svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+            <linearGradient id="cardGrad" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="#0e131f" />
+                <stop offset="100%" stop-color="#080b12" />
+            </linearGradient>
+            <filter id="noiseFilter">
+                <feTurbulence type="fractalNoise" baseFrequency="0.8" numOctaves="3" stitchTiles="stitch" />
+                <feColorMatrix type="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 0.035 0" />
+            </filter>
+        </defs>
+
+        <rect width="${width}" height="${height}" fill="url(#cardGrad)" />
+        <rect width="${width}" height="${height}" filter="url(#noiseFilter)" />
+
+        <!-- Left Main Card (width: 524) -->
+        <g transform="translate(32, 30)">
+            ${drawPencilBox(0, 0, 524, 370, { roughness: 2.0, bowing: 1.4, stroke: '#f1f5f9', strokeWidth: 1.8, seed: 73 })}
+            
+            <!-- User Avatar (QQ Avatar with rounded corners) -->
+            <g transform="translate(24, 24)">
+                <image href="data:image/png;base64,${avatarBase64}" x="0" y="0" width="${avSize}" height="${avSize}" />
+            </g>
+
+            <!-- Name and Welcome Header -->
+            <g transform="translate(148, 30)">
+                <text x="0" y="24" fill="#f8fafc" font-size="24" font-family="${font}" font-weight="900">${nickname}</text>
+                <text x="0" y="48" fill="#94a3b8" font-size="12" font-family="${monoFont}"># [NEW_MEMBER_JOIN] · QQ: ${userId}</text>
+                
+                <!-- Status Badge -->
+                <rect x="0" y="60" width="86" height="24" rx="6" fill="#14291f" stroke="#98dfaf" stroke-width="1" />
+                <text x="43" y="77" fill="#98dfaf" font-size="12" font-family="${font}" font-weight="bold" text-anchor="middle">${headerCfg.badge_text}</text>
+                
+                <text x="98" y="77" fill="#cbd5e1" font-size="12" font-family="${font}">已加入: ${groupName}</text>
+                <text x="0" y="104" fill="#64748b" font-size="12" font-family="${font}">QQ等级: <tspan fill="#fbe285" font-weight="bold">${qqLevel}</tspan></text>
+            </g>
+
+            <!-- Divider Line -->
+            <path d="M 24 156 L 500 156" stroke="#2a324b" stroke-width="1.5" stroke-dasharray="4 4" />
+
+            <!-- Clean Guidance Grid (Driven by welcome-card.json) -->
+            <g transform="translate(24, 172)">
+                ${cardsSvg}
+            </g>
+
+            <!-- Personalized Welcome Message speech box -->
+            <g transform="translate(24, 258)">
+                ${drawPencilBox(0, 0, 476, 80, { roughness: 1.5, bowing: 1.0, stroke: '#475569', strokeWidth: 1.4, fill: '#141824', seed: 77 })}
+                <text x="16" y="26" fill="#98dfaf" font-size="12" font-family="${font}" font-weight="bold">${speechBoxCfg.title}</text>
+                <text x="16" y="47" fill="#e2e8f0" font-size="12.5" font-family="${font}">“${welcomeLine1}”</text>
+                <text x="16" y="66" fill="#cbd5e1" font-size="12" font-family="${font}">“${welcomeLine2}”</text>
+            </g>
+        </g>
+
+        <!-- Right Side: Speech Bubble & Dancing Doodle (Driven by welcome-card.json) -->
+        <g transform="translate(${bubbleCfg.x}, ${bubbleCfg.y})">
+            ${drawPencilSpeechBubble(0, 0, bubbleCfg.width, bubbleCfg.height, bubbleCfg.tail_offset, { seed: 105, stroke: '#f1f5f9', fill: '#181b24' })}
+            <text x="${bubbleCfg.width / 2}" y="28" fill="#f8fafc" font-size="13" font-family="${font}" font-weight="900" text-anchor="middle">${bubbleCfg.title}</text>
+            <text x="${bubbleCfg.width / 2}" y="48" fill="#98dfaf" font-size="11" font-family="${font}" font-weight="bold" text-anchor="middle">${bubbleCfg.subtitle}</text>
+        </g>
+
+        ${dancingBase64 ? `
+        <g transform="translate(${doodleCfg.x}, ${doodleCfg.y})">
+            <image href="data:image/png;base64,${dancingBase64}" x="0" y="0" width="${doodleCfg.width}" height="${doodleCfg.height}" />
+        </g>
+        ` : ''}
+    </svg>
+    `;
+
+    return await sharp(Buffer.from(svg)).png().toBuffer();
+}
+
+async function generatePersonalizedWelcome(nickname, groupName) {
+    const welcomeCfg = loadWelcomeCardConfig();
+    const speechBoxCfg = welcomeCfg.speech_box || {};
+    const template = welcomeCfg.llm_prompt_template || `你是 FreeCore Minecraft 服务器的元气傲娇少女专属 OP 小可（CoreNyan）。\n现在有一位新群友【{NICKNAME}】刚刚加入了【{GROUP_NAME}】。\n请以小可特有的元气、微傲娇、可爱且热情的口吻，为这位新朋友量身定制一句温馨有趣的入群欢迎语！\n要求：\n1. 必须分为两行，每行不超过 26 个字。\n2. 第一行：热情打招呼并调侃/问候新群友的昵称；\n3. 第二行：提醒群规/看置顶公告/常来服务器玩/遇到问题找小可。\n4. 绝对不要加引号、不要加序号、不要加前缀！只严格输出两行纯文本。`;
+
+    const prompt = template
+        .replace('{NICKNAME}', nickname)
+        .replace('{GROUP_NAME}', groupName);
+
+    try {
+        const res = await fetch('https://open.bigmodel.cn/api/paas/v4/chat/completions', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer e1d34dd515b04f5b949f93d09c3aad01.RpPyuHtmCZ4nHlEi'
+            },
+            body: JSON.stringify({
+                model: 'glm-5.3-flash',
+                temperature: 0.8,
+                messages: [{ role: 'user', content: prompt }]
+            })
+        });
+        const data = await res.json();
+        const text = data.choices?.[0]?.message?.content?.trim() || '';
+        const lines = text.split(/\r?\n/).map(l => l.replace(/^[0-9一二两1-9][.、:：\s]*/, '').replace(/^[“"”]/, '').replace(/[“"”]$/, '').trim()).filter(Boolean);
+        if (lines.length >= 2) {
+            return {
+                line1: lines[0],
+                line2: lines[1]
+            };
+        } else if (lines.length === 1) {
+            return {
+                line1: lines[0],
+                line2: speechBoxCfg.default_line2 || '群规和整合包在置顶哦，进服遇到困难随时叫本姑娘！(๑•̀ㅂ•́)و✧'
+            };
+        }
+    } catch (e) {
+        log('[LLM 生成欢迎语失败]:', e.message);
+    }
+
+    return {
+        line1: speechBoxCfg.default_line1 || `哇！欢迎 ${nickname} 入群，今天也是元气满满的一天呢～`,
+        line2: speechBoxCfg.default_line2 || '群规和整合包在置顶公告，进服遇到困难随时叫本姑娘哦！(๑•̀ㅂ•́)و✧'
+    };
+}
+
+async function renderPlayerCard(playerData) {
+    reloadConfig();
+    const style = config.card_style || {};
+    const font = style.font_family || "'Microsoft YaHei', sans-serif";
+    const monoFont = style.mono_font_family || "'Consolas', 'Courier New', monospace";
+    const doodle = getRandomDoodle();
+
+    const {
+        name,
+        isOnline,
+        subServer,
+        health,
+        maxHealth,
+        level,
+        seenText,
+        bal,
+        regTime,
+        affection,
+        nickname,
+        impression,
+        avatarBase64
+    } = playerData;
+
+    const width = 800;
+    const height = 430;
+
+    const statusText = isOnline ? '✔ 在线' : '✖ 离线';
+    const statusColor = isOnline ? '#98dfaf' : '#ff9aa2';
+    const statusBg = isOnline ? '#14291f' : '#2d1518';
+
+    let cleanImpression = (impression || '对这位玩家还不太熟悉呢，多来服务器玩嘛~').trim();
+    if (cleanImpression.length > 55) {
+        cleanImpression = cleanImpression.substring(0, 52) + '...';
+    }
+
+    const svg = `
+    <svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+            <linearGradient id="cardGrad" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="#0e131f" />
+                <stop offset="100%" stop-color="#080b12" />
+            </linearGradient>
+            <filter id="noiseFilter">
+                <feTurbulence type="fractalNoise" baseFrequency="0.8" numOctaves="3" stitchTiles="stitch" />
+                <feColorMatrix type="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 0.035 0" />
+            </filter>
+        </defs>
+
+        <rect width="${width}" height="${height}" fill="url(#cardGrad)" />
+        <rect width="${width}" height="${height}" filter="url(#noiseFilter)" />
+
+        <!-- Left Main Card (width: 524) -->
+        <g transform="translate(32, 30)">
+            ${drawPencilBox(0, 0, 524, 370, { roughness: 2.0, bowing: 1.4, stroke: '#f1f5f9', strokeWidth: 1.8, seed: 42 })}
+            
+            <!-- Avatar (Clean rounded square avatar without green border) -->
+            <g transform="translate(24, 24)">
+                <image href="data:image/png;base64,${avatarBase64}" x="0" y="0" width="104" height="104" />
+            </g>
+
+            <!-- Name and Status Header -->
+            <g transform="translate(148, 30)">
+                <text x="0" y="24" fill="#f8fafc" font-size="25" font-family="${font}" font-weight="900">${name}</text>
+                <text x="0" y="48" fill="#94a3b8" font-size="12" font-family="${monoFont}"># [PLAYER_PROFILE] · FreeCore 官方档案</text>
+                
+                <!-- Status Badge -->
+                <rect x="0" y="60" width="70" height="24" rx="6" fill="${statusBg}" stroke="${statusColor}" stroke-width="1" />
+                <text x="35" y="77" fill="${statusColor}" font-size="12" font-family="${font}" font-weight="bold" text-anchor="middle">${statusText}</text>
+                
+                <text x="82" y="77" fill="#cbd5e1" font-size="12" font-family="${font}">动态: ${seenText}</text>
+                ${isOnline ? `<text x="0" y="104" fill="#64748b" font-size="12" font-family="${font}">子服: <tspan fill="#98dfaf" font-weight="bold">${subServer}</tspan>  |  生命值: <tspan fill="#ff9aa2" font-weight="bold">${health} / ${maxHealth} HP</tspan> (Lv.${level})</text>` : ''}
+            </g>
+
+            <!-- Divider Line -->
+            <path d="M 24 156 L 500 156" stroke="#2a324b" stroke-width="1.5" stroke-dasharray="4 4" />
+
+            <!-- Stats Grid (3 columns) -->
+            <g transform="translate(24, 172)">
+                <!-- Bal Card -->
+                <g transform="translate(0, 0)">
+                    ${drawPencilBox(0, 0, 148, 68, { roughness: 1.4, bowing: 1.0, stroke: '#334155', strokeWidth: 1.2, fill: '#121624', seed: 31 })}
+                    <text x="12" y="24" fill="#94a3b8" font-size="11" font-family="${font}">账户财富 (H币)</text>
+                    <text x="12" y="52" fill="#fbe285" font-size="19" font-family="${monoFont}" font-weight="bold">${bal}</text>
+                </g>
+
+                <!-- Registered Card -->
+                <g transform="translate(164, 0)">
+                    ${drawPencilBox(0, 0, 156, 68, { roughness: 1.4, bowing: 1.0, stroke: '#334155', strokeWidth: 1.2, fill: '#121624', seed: 33 })}
+                    <text x="12" y="24" fill="#94a3b8" font-size="11" font-family="${font}">社区注册时间</text>
+                    <text x="12" y="52" fill="#cbd5e1" font-size="13" font-family="${monoFont}" font-weight="bold">${regTime}</text>
+                </g>
+
+                <!-- Affection Card -->
+                <g transform="translate(336, 0)">
+                    ${drawPencilBox(0, 0, 140, 68, { roughness: 1.4, bowing: 1.0, stroke: '#334155', strokeWidth: 1.2, fill: '#121624', seed: 35 })}
+                    <text x="12" y="24" fill="#94a3b8" font-size="11" font-family="${font}">小可好感度</text>
+                    <text x="12" y="52" fill="#ff9aa2" font-size="19" font-family="${monoFont}" font-weight="bold">❤ ${affection >= 0 ? '+' + affection : affection}</text>
+                </g>
+            </g>
+
+            <!-- Impression speech box -->
+            <g transform="translate(24, 258)">
+                ${drawPencilBox(0, 0, 476, 80, { roughness: 1.5, bowing: 1.0, stroke: '#475569', strokeWidth: 1.4, fill: '#141824', seed: 77 })}
+                <text x="16" y="28" fill="#98dfaf" font-size="12" font-family="${font}" font-weight="bold">小可的印象档案${nickname ? ' (' + nickname + ')' : ''}：</text>
+                <text x="16" y="56" fill="#e2e8f0" font-size="13" font-family="${font}">“${cleanImpression}”</text>
+            </g>
+        </g>
+
+        <!-- Right Side: CoreNyan Doodle & Speech Bubble -->
+        <g transform="translate(570, 85)">
+            ${drawPencilSpeechBubble(0, 0, 196, 68, 85, { seed: 105, stroke: '#f1f5f9', fill: '#181b24' })}
+            <text x="98" y="28" fill="#f8fafc" font-size="13" font-family="${font}" font-weight="900" text-anchor="middle">档案调取完毕！</text>
+            <text x="98" y="48" fill="#94a3b8" font-size="11" font-family="${font}" font-weight="bold" text-anchor="middle">&gt;&gt; 小可专属手帐 ✦</text>
+        </g>
+
+        ${doodle ? `
+        <g transform="translate(560, 168)">
+            <image href="data:image/png;base64,${doodle.base64}" x="0" y="0" width="220" height="220" />
+        </g>
+        ` : ''}
+    </svg>
+    `;
+
+    return await sharp(Buffer.from(svg)).png().toBuffer();
+}
+
+async function fetchPlayerProfileData(targetPlayer) {
+    let avatarBase64 = '';
+    const avSize = 104;
+    try {
+        let avatarRaw = null;
+
+        // 1. 优先检查该玩家是否为绑定/直连的正版玩家 (mojang_verifications)
+        try {
+            const [pRows] = await dbPool.query(
+                `SELECT p.tid_skin, m.uuid as mojang_uuid 
+                 FROM players p 
+                 LEFT JOIN mojang_verifications m ON m.user_id = p.uid AND m.verified = 1 
+                 WHERE p.name = ? LIMIT 1`,
+                [targetPlayer]
+            );
+
+            if (pRows && pRows.length > 0) {
+                const row = pRows[0];
+                // 如果是正版玩家且本地没有上传过自定义皮肤 (tid_skin = 0)，直接从 Minotar 获取其正版官方头像
+                if (row.mojang_uuid && (!row.tid_skin || row.tid_skin === 0)) {
+                    const cleanUuid = String(row.mojang_uuid).replace(/-/g, '').toLowerCase();
+                    const minotarUrl = `https://minotar.net/helm/${cleanUuid}/${avSize}.png`;
+                    const mRes = await fetch(minotarUrl, { timeout: 3500 });
+                    if (mRes.ok) {
+                        avatarRaw = Buffer.from(await mRes.arrayBuffer());
+                    }
+                }
+            }
+        } catch (dbErr) {
+            log('[正版头像探测异常]:', dbErr.message);
+        }
+
+        // 2. 如果不是正版或正版头像拉取超时，降级走本地皮肤站头像服务
+        if (!avatarRaw) {
+            const res = await fetch('http://127.0.0.1:25567/avatar/player/' + encodeURIComponent(targetPlayer), { timeout: 2500 });
+            avatarRaw = Buffer.from(await res.arrayBuffer());
+        }
+
+        const roundedCorners = Buffer.from('<svg><rect x="0" y="0" width="' + avSize + '" height="' + avSize + '" rx="20" ry="20"/></svg>');
+        const avatarRounded = await sharp(avatarRaw)
+            .resize(avSize, avSize, { kernel: sharp.kernel.nearest })
+            .composite([{ input: roundedCorners, blend: 'dest-in' }])
+            .png()
+            .toBuffer();
+        avatarBase64 = avatarRounded.toString('base64');
+    } catch (e) {
+        log('[获取头像失败]:', e.message);
+    }
+
+    const [checkRaw, seenRaw] = await Promise.all([
+        queryMcTool('check_player("' + targetPlayer + '")', 2000),
+        queryMcTool('seen("' + targetPlayer + '")', 2000)
+    ]);
+
+    let isOnline = false;
+    let subServer = '生存服 (Survival)';
+    let health = 20;
+    let maxHealth = 20;
+    let level = 0;
+    let bal = '0.0';
+    let seenText = '暂无记录';
+
+    if (checkRaw && !checkRaw.includes('查询超时')) {
+        if (checkRaw.includes('状态: 在线')) isOnline = true;
+        const wMatch = checkRaw.match(/所在世界:\s*([^\r\n]+)/);
+        if (wMatch) {
+            const wName = wMatch[1].trim();
+            if (wName.toLowerCase().includes('tech')) subServer = '生电服 (Tech)';
+            else if (wName.toLowerCase().includes('lobby')) subServer = '主城大厅 (Lobby)';
+            else subServer = '生存服 (' + wName + ')';
+        }
+        const hMatch = checkRaw.match(/生命值:\s*(\d+)\/(\d+)/);
+        if (hMatch) {
+            health = parseInt(hMatch[1]);
+            maxHealth = parseInt(hMatch[2]);
+        }
+        const lMatch = checkRaw.match(/经验等级:\s*(\d+)/);
+        if (lMatch) level = parseInt(lMatch[1]);
+
+        const balMatch = checkRaw.match(/账户财富:\s*([0-9.]+)\s*H币/);
+        if (balMatch) bal = balMatch[1];
+    }
+
+    if (isOnline) {
+        seenText = '当前正活跃于游戏中';
+    } else if (seenRaw && !seenRaw.includes('查询超时')) {
+        const sMatch = seenRaw.match(/上次在线时间为:\s*([^\r\n]+)/);
+        if (sMatch) {
+            seenText = sMatch[1].trim();
+        } else if (seenRaw.includes('活跃在线')) {
+            isOnline = true;
+            seenText = '当前正活跃于游戏中';
+        } else {
+            seenText = seenRaw.trim().replace(/^玩家\s*\S+\s*/, '');
+        }
+    }
+
+    let regTime = '未绑定账号';
+    try {
+        const conn = await mysql.createConnection({
+            host: '127.0.0.1',
+            port: 3306,
+            user: 'LynnHMa',
+            password: 'nmNb666minecraft',
+            database: 'freecoreskin'
+        });
+        const [rows] = await conn.execute(
+            'SELECT p.name, u.register_at FROM players p JOIN users u ON p.uid = u.uid WHERE p.name = ?',
+            [targetPlayer]
+        );
+        await conn.end();
+        if (rows && rows.length > 0) {
+            const regDate = new Date(rows[0].register_at);
+            const y = regDate.getFullYear();
+            const m = String(regDate.getMonth() + 1).padStart(2, '0');
+            const d = String(regDate.getDate()).padStart(2, '0');
+            regTime = y + '-' + m + '-' + d;
+        }
+    } catch (e) {
+        log('[MySQL 查询注册时间异常]:', e.message);
+    }
+
+    let affection = 0;
+    let nickname = '';
+    let impression = '对这位玩家还不太熟悉呢，多来服务器玩嘛~';
+    try {
+        const affPath = 'C:\\MCSManager\\daemon\\data\\InstanceData\\FreeCore-CoreNyan\\affections.json';
+        if (fs.existsSync(affPath)) {
+            const affData = JSON.parse(fs.readFileSync(affPath, 'utf8'));
+            for (const key of Object.keys(affData)) {
+                const item = affData[key];
+                if (item && item.name && item.name.toLowerCase() === targetPlayer.toLowerCase()) {
+                    affection = item.affection || 0;
+                    nickname = item.nickname || '';
+                    if (item.impression && item.impression.trim()) {
+                        impression = item.impression.trim();
+                    }
+                    break;
+                }
+            }
+        }
+    } catch (e) {
+        log('[好感度读取异常]:', e.message);
+    }
+
+    return {
+        name: targetPlayer,
+        isOnline,
+        subServer,
+        health,
+        maxHealth,
+        level,
+        seenText,
+        bal,
+        regTime,
+        affection,
+        nickname,
+        impression,
+        avatarBase64
+    };
+}
+
 async function renderSparkImage(parsedNodes, analysisSummary) {
     reloadConfig();
     const style = config.card_style || {};
@@ -1037,6 +1733,7 @@ function connectRedis() {
 
             try {
                 const payloadStr = payloadBuf.toString('utf8');
+                log('[Redis-Sub] 收到出站数据包:', payloadStr);
                 handleRedisOutbound(JSON.parse(payloadStr));
             } catch (e) {
                 log('Failed to parse outbound JSON:', e.message);
@@ -1144,7 +1841,57 @@ function handleRedisOutbound(packet) {
         return;
     }
 
-    const { target_type, group_id, user_id, message_id, reply, card_type } = packet;
+    const { target_type, group_id, user_id, message_id, reply, card_type, image_base64 } = packet;
+
+    // 支持发送表情包/图片
+    if (image_base64) {
+        (async () => {
+            let finalBase64 = image_base64;
+            try {
+                const buf = Buffer.from(image_base64, 'base64');
+                const meta = await sharp(buf, { animated: true }).metadata();
+                const MAX_EMOJI_DIM = 280;
+                if (meta.width > MAX_EMOJI_DIM || meta.height > MAX_EMOJI_DIM) {
+                    log(`[QQBot 表情包守卫] 检测到大尺寸表情 (${meta.width}x${meta.height})，执行收敛调整至 ≤${MAX_EMOJI_DIM}px...`);
+                    let pipeline = sharp(buf, { animated: true })
+                        .resize({
+                            width: MAX_EMOJI_DIM,
+                            height: MAX_EMOJI_DIM,
+                            fit: 'inside',
+                            withoutEnlargement: true
+                        });
+                    let outBuf;
+                    if (meta.format === 'gif') {
+                        outBuf = await pipeline.gif().toBuffer();
+                    } else if (meta.format === 'png') {
+                        outBuf = await pipeline.png({ compressionLevel: 8 }).toBuffer();
+                    } else if (meta.format === 'webp') {
+                        outBuf = await pipeline.webp({ quality: 85 }).toBuffer();
+                    } else {
+                        outBuf = await pipeline.jpeg({ quality: 85 }).toBuffer();
+                    }
+                    finalBase64 = outBuf.toString('base64');
+                }
+            } catch (e) {
+                log('[QQBot 表情包守卫] 尺寸检查/压缩异常，降级发送原图:', e.message);
+            }
+
+            const isGrp = target_type === 'group';
+            const msgPayload = {
+                action: isGrp ? 'send_group_msg' : 'send_private_msg',
+                params: isGrp ? {
+                    group_id: Number(group_id),
+                    message: [{ type: 'image', data: { file: `base64://${finalBase64}`, sub_type: 1 } }]
+                } : {
+                    user_id: Number(user_id),
+                    message: [{ type: 'image', data: { file: `base64://${finalBase64}`, sub_type: 1 } }]
+                }
+            };
+            napcatWs.send(JSON.stringify(msgPayload));
+            log(`[${isGrp ? `群 ${group_id}` : `私聊 ${user_id}`}] 表情包图片成功发送！`);
+        })();
+        return;
+    }
 
     // 支持主动图卡发送 (例如: card_type = 'status' 或 'line')
     if (card_type) {
@@ -1211,6 +1958,47 @@ function handleRedisOutbound(packet) {
                 log(`[卡片渲染发送失败]:`, err.message);
             }
         })();
+        return;
+    }
+
+    if (target_type === 'group_ban' && group_id && user_id) {
+        // 群内禁言动作: duration 为秒数
+        const durationSec = Number(packet.duration || 60);
+        log(`[小可怒气管理] 执行群禁言: 群=${group_id}, 用户=${user_id}, 时长=${durationSec}秒`);
+        const banPayload = {
+            action: 'set_group_ban',
+            params: {
+                group_id: Number(group_id),
+                user_id: Number(user_id),
+                duration: durationSec
+            },
+            echo: `ban_${user_id}_${Date.now()}`
+        };
+        napcatWs.send(JSON.stringify(banPayload));
+        return;
+    } else if (target_type === 'poke') {
+        // 戳一戳动作
+        if (group_id && user_id) {
+            log(`[小可主动互动] 执行群内戳一戳: 群=${group_id}, 目标用户=${user_id}`);
+            // NapCat / OneBot 群戳一戳 action: group_poke
+            napcatWs.send(JSON.stringify({
+                action: 'group_poke',
+                params: {
+                    group_id: Number(group_id),
+                    user_id: Number(user_id)
+                },
+                echo: `poke_${user_id}_${Date.now()}`
+            }));
+        } else if (user_id) {
+            log(`[小可主动互动] 执行私聊戳一戳: 目标用户=${user_id}`);
+            napcatWs.send(JSON.stringify({
+                action: 'friend_poke',
+                params: {
+                    user_id: Number(user_id)
+                },
+                echo: `poke_${user_id}_${Date.now()}`
+            }));
+        }
         return;
     }
 
@@ -1294,6 +2082,7 @@ async function handleOneBotMessage(event) {
 
     let text = '';
     let isAt = false;
+    let replyContext = '';
     const imageUrls = [];
 
     if (Array.isArray(event.message)) {
@@ -1305,6 +2094,14 @@ async function handleOneBotMessage(event) {
             } else if (seg.type === 'image') {
                 const imgUrl = seg.data?.url || seg.data?.file || '';
                 if (imgUrl) imageUrls.push(imgUrl);
+            } else if (seg.type === 'reply' && seg.data?.id) {
+                const refId = String(seg.data.id);
+                const cachedRef = recentMessagesCache.get(refId);
+                if (cachedRef) {
+                    const refSender = cachedRef.sender || `用户(${cachedRef.userId})`;
+                    const refContent = cachedRef.text ? `"${cachedRef.text}"` : (cachedRef.images?.length ? '[图片]' : '一条消息');
+                    replyContext = `[回复 @${refSender}: ${refContent}] `;
+                }
             }
         }
     } else {
@@ -1315,11 +2112,14 @@ async function handleOneBotMessage(event) {
     // 缓存此消息，用于后续撤回事件精准抓包
     cacheMessage(event, text, imageUrls);
 
-    // 组合展示正文（如果含有图片，附带可感知的图片占位或图片链接）
+    // 组合展示正文（如果含有图片，附带可感知的图片占位或图片链接；附带引用上下文）
     let fullDisplayMessage = text;
     if (imageUrls.length > 0) {
         const imgTags = imageUrls.map(u => `[图片:${u}]`).join(' ');
         fullDisplayMessage = fullDisplayMessage ? `${fullDisplayMessage} ${imgTags}` : imgTags;
+    }
+    if (replyContext) {
+        fullDisplayMessage = `${replyContext}${fullDisplayMessage}`;
     }
 
     // Check command
@@ -1403,9 +2203,80 @@ async function handleOneBotNotice(event) {
         } else if (subType === 'lift_ban' || duration === 0) {
             eventDesc = `【群事件·解禁】管理员(${operatorId}) 解除了 用户(${userId}) 的禁言。`;
         }
+    } else if (noticeType === 'notify' && subType === 'poke') {
+        // 戳一戳感知：target_id 是被戳者，user_id 是发起戳一戳的人
+        const targetId = event.target_id || event.target || 0;
+        const pokerId = event.user_id || operatorId || 0;
+        const isPokeBot = String(targetId) === '3055581141' || String(targetId) === String(loginInfo.user_id);
+        if (isPokeBot) {
+            eventDesc = `【群事件·戳一戳小可】用户(${pokerId}) 刚刚在群里轻轻戳了戳小可的脸蛋！`;
+        } else {
+            eventDesc = `【群事件·戳一戳】用户(${pokerId}) 在群里戳了戳 用户(${targetId})。`;
+        }
     } else if (noticeType === 'group_increase') {
         const groupName = config.groups?.[String(groupId)]?.name || event.group_name || `群${groupId}`;
-        eventDesc = `【群事件·新群友入群】新人(${userId}) 加入了群聊【${groupName}】！`;
+        // 新人入群只以精美卡片形式欢迎，不发送多余文字信息到大模型中枢（避免中枢又延迟发一嘴文字造成重复刷屏）
+        (async () => {
+            try {
+                log(`[入群欢迎卡片] 正在为新群友 ${userId} 生成专属欢迎黑卡...`);
+                // 1. 获取群成员信息与 QQ 基础资料（QQ 等级）
+                let memberNick = `群友(${userId})`;
+                let qqLevel = 'Lv.1';
+                
+                const [memberInfo, strangerInfo] = await Promise.all([
+                    callOneBotApi('get_group_member_info', { group_id: groupId, user_id: userId, no_cache: true }, 3000),
+                    callOneBotApi('get_stranger_info', { user_id: userId, no_cache: true }, 3000)
+                ]);
+
+                if (memberInfo) {
+                    memberNick = memberInfo.card || memberInfo.nickname || memberNick;
+                }
+                if (strangerInfo) {
+                    if (strangerInfo.level) qqLevel = `Lv.${strangerInfo.level}`;
+                    else if (strangerInfo.qqLevel) qqLevel = `Lv.${strangerInfo.qqLevel}`;
+                    if (memberNick === `群友(${userId})` && strangerInfo.nickname) {
+                        memberNick = strangerInfo.nickname;
+                    }
+                }
+
+                // 2. 获取 QQ 头像并裁切圆角
+                let avatarBase64 = '';
+                const avSize = 104;
+                try {
+                    const avRes = await fetch(`https://q1.qlogo.cn/g?b=qq&nk=${userId}&s=640`);
+                    const avRaw = Buffer.from(await avRes.arrayBuffer());
+                    const roundedCorners = Buffer.from(`<svg><rect x="0" y="0" width="${avSize}" height="${avSize}" rx="20" ry="20"/></svg>`);
+                    const avRounded = await sharp(avRaw)
+                        .resize(avSize, avSize)
+                        .composite([{ input: roundedCorners, blend: 'dest-in' }])
+                        .png()
+                        .toBuffer();
+                    avatarBase64 = avRounded.toString('base64');
+                } catch (e) {
+                    log('[获取新人QQ头像失败]:', e.message);
+                }
+
+                // 3. LLM 专属量身定制手帐迎新语
+                const welcomeLines = await generatePersonalizedWelcome(memberNick, groupName);
+
+                // 4. 渲染经典优雅布局的迎新黑卡
+                const cardBuf = await renderWelcomeCard({
+                    nickname: memberNick,
+                    userId,
+                    groupName,
+                    qqLevel,
+                    welcomeLine1: welcomeLines.line1,
+                    welcomeLine2: welcomeLines.line2,
+                    avatarBase64
+                });
+
+                sendImageReply({ message_type: 'group', group_id: groupId }, cardBuf.toString('base64'));
+                log(`[入群欢迎卡片] 成功为 ${memberNick}(${userId}) 发送专属手绘欢迎黑卡！`);
+            } catch (err) {
+                log('[入群欢迎卡片生成失败]:', err.message);
+            }
+        })();
+        return; // 直接拦截结束，不广播到中枢，杜绝多余文字刷屏！
     }
 
     if (!eventDesc) return;
@@ -1593,43 +2464,70 @@ async function handleCommand(cmd, args, event, isGroup, groupId, userId, role) {
         return true;
     }
 
-    // 3. /bal 指令 (模块4: 玩家H币资产查询 - 所有人可用)
-    const balMod = config.modules.bal;
-    if (balMod && (cmd === balMod.command || (balMod.aliases && balMod.aliases.includes(cmd)))) {
-        if (!isModuleAllowed('bal', isGroup, groupId, userId)) {
-            sendQuickReply(event, '【提示】当前群聊或私聊未启用玩家H币资产查询模块。');
+        // 3. /p 统一玩家综合档案卡片指令 (融合 seen + bal + 皮肤头像 + 注册时间 + 好感度印象)
+    const pMod = config.modules.p;
+    if (pMod && (cmd === pMod.command || (pMod.aliases && pMod.aliases.includes(cmd)))) {
+        if (!isModuleAllowed('p', isGroup, groupId, userId)) {
+            sendQuickReply(event, '【提示】当前群聊或私聊未启用玩家档案查询模块。');
             return true;
         }
 
-        if (args.length === 0) {
-            sendQuickReply(event, '哼！你要查谁的资产呀？请告诉本姑娘玩家名哦~ (¬_¬)\n用法: /bal <玩家名>');
-            return true;
-        }
+        let targetPlayer = args.length > 0 ? args[0].trim() : '';
 
-        const targetPlayer = args[0].trim();
-        log(`[指令 /bal] 收到来自 ${userId} 的查询请求: 目标=${targetPlayer}`);
-        const res = await queryMcTool(`bal(${targetPlayer})`);
-        sendQuickReply(event, res);
+        (async () => {
+            try {
+                // 如果没有提供玩家名，尝试自动查询当前 QQ 绑定的游戏玩家名
+                if (!targetPlayer) {
+                    const bound = await queryBoundPlayerByQq(userId);
+                    if (bound) {
+                        targetPlayer = bound;
+                        log(`[指令 /p] QQ ${userId} 未带参数，自动关联查询其绑定的游戏角色: ${targetPlayer}`);
+                    } else {
+                        sendQuickReply(event, '哼！你还没绑定游戏账号，本姑娘不知道要查谁的档案呀~ (¬_¬)\n💡 请使用用法: /p <玩家名>\n或者先前往个人中心 (https://account.lynnhma.xyz/user/verify) 完成 QQ 绑定，绑定后即可直接发送 /p 查询自己哦！');
+                        return;
+                    }
+                }
+
+                log('[指令 /p] 收到来自 ' + userId + ' (群:' + groupId + ') 的玩家档案卡片请求: 目标=' + targetPlayer);
+
+                const lowerTarget = targetPlayer.toLowerCase();
+                let imgBuf = null;
+                if (lowerTarget === 'corenyan' || lowerTarget === '小可') {
+                    log('[彩蛋触发] 触发小可专属隐藏档案卡片！');
+                    imgBuf = await renderCoreNyanEggCard();
+                } else {
+                    // 1. 先进行玩家存在性严格核验：必须在皮肤站或者服务器数据库中存在
+                    const [playerRows] = await dbPool.query(
+                        'SELECT pid, name FROM players WHERE name = ? LIMIT 1',
+                        [targetPlayer]
+                    );
+
+                    // 如果皮肤站数据库完全没有该玩家记录，直接拦截并友好提示，坚决不渲染越界/空数据卡片！
+                    if (!playerRows || playerRows.length === 0) {
+                        sendQuickReply(event, `哼！本姑娘翻遍了全服花名册，也没有找到名为 [${targetPlayer}] 的玩家哦~ (¬_¬)\n请检查游戏名字的大小写或拼写是否正确，或者让 TA 先前往官网 (https://account.lynnhma.xyz) 注册账号吧！`);
+                        return;
+                    }
+
+                    // 规范化玩家名称大小写
+                    targetPlayer = playerRows[0].name;
+
+                    const data = await fetchPlayerProfileData(targetPlayer);
+                    imgBuf = await renderPlayerCard(data);
+                }
+                const base64 = imgBuf.toString('base64');
+                sendImageReply(event, base64);
+            } catch (err) {
+                log('[玩家档案卡片生成异常]:', err.message);
+                sendQuickReply(event, '【错误】生成玩家 ' + targetPlayer + ' 档案卡片失败: ' + err.message);
+            }
+        })();
         return true;
     }
 
-    // 4. /seen 指令 (模块5: 玩家最后在线查询 - 所有人可用，防泄露IP)
-    const seenMod = config.modules.seen;
-    if (seenMod && (cmd === seenMod.command || (seenMod.aliases && seenMod.aliases.includes(cmd)))) {
-        if (!isModuleAllowed('seen', isGroup, groupId, userId)) {
-            sendQuickReply(event, '【提示】当前群聊或私聊未启用玩家最后在线查询模块。');
-            return true;
-        }
-
-        if (args.length === 0) {
-            sendQuickReply(event, '哼！你要查谁的上线时间呀？请把玩家名告诉本姑娘~ (¬_¬)\n用法: /seen <玩家名>');
-            return true;
-        }
-
-        const targetPlayer = args[0].trim();
-        log(`[指令 /seen] 收到来自 ${userId} 的查询请求: 目标=${targetPlayer}`);
-        const res = await queryMcTool(`seen(${targetPlayer})`);
-        sendQuickReply(event, res);
+    // 3.5 /link 指令 (已全面废除验证码，升级为前往官网一键 QQ 快捷登录绑定)
+    const linkMod = config.modules.link;
+    if (linkMod && (cmd === linkMod.command || (linkMod.aliases && linkMod.aliases.includes(cmd)))) {
+        sendQuickReply(event, '验证码已经废除啦！\n\n现在无需找小可绑定~ 绑定 QQ 只需前往【个人中心】-【我的绑定】~\n 个人中心：https://account.lynnhma.xyz/\n\n绑定完以后还能直接用QQ快捷登录游戏哦~ >(๑•̀ㅂ•́)و✧');
         return true;
     }
 
@@ -2052,6 +2950,12 @@ function startGateway() {
                         log(`[NapCat API 响应失败] echo=${event.echo || 'none'}, status=${event.status}, retcode=${event.retcode}, msg=${event.message || event.wording || ''}, data=${JSON.stringify(event.data || {})}`);
                     } else if (event.echo) {
                         log(`[NapCat API 响应成功] echo=${event.echo}, retcode=0`);
+                        if (pendingOneBotRequests.has(event.echo)) {
+                            const req = pendingOneBotRequests.get(event.echo);
+                            pendingOneBotRequests.delete(event.echo);
+                            clearTimeout(req.timer);
+                            req.resolve(event.data || null);
+                        }
                     }
                 }
             } catch (e) {

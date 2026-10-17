@@ -19,7 +19,8 @@
   "permissions": {
     "owners": [
       2040266560,
-      2842868264
+      2842868264,
+      3357058735
     ],
     "trust_admins": true,
     "blacklist": []
@@ -99,47 +100,6 @@
       "allowed_users": [],
       "denied_users": []
     },
-    "bal": {
-      "name": "玩家H币查询",
-      "description": "查询指定玩家的H币账户余额",
-      "enabled": true,
-      "command": "bal",
-      "aliases": [
-        "money",
-        "余额",
-        "h币",
-        "钱"
-      ],
-      "allow_private": true,
-      "allowed_groups": [
-        516368088,
-        1127138554,
-        1085070135
-      ],
-      "denied_groups": [],
-      "allowed_users": [],
-      "denied_users": []
-    },
-    "seen": {
-      "name": "玩家最后在线查询",
-      "description": "查询指定玩家上一次在线时间与状态（绝不泄露IP）",
-      "enabled": true,
-      "command": "seen",
-      "aliases": [
-        "在线时间",
-        "上次在线",
-        "查在线"
-      ],
-      "allow_private": true,
-      "allowed_groups": [
-        516368088,
-        1127138554,
-        1085070135
-      ],
-      "denied_groups": [],
-      "allowed_users": [],
-      "denied_users": []
-    },
     "spark": {
       "name": "Spark性能采样与私聊分析",
       "description": "启动服务器深度性能采样，生成Spark报告链接并私发AI诊断结论（绝不群发）",
@@ -197,6 +157,47 @@
       "denied_groups": [],
       "allowed_users": [],
       "denied_users": []
+    },
+    "p": {
+      "name": "玩家综合档案卡片",
+      "description": "查询玩家的皮肤头像、在线动态/最后离线时间、子服与生命值、H币资产、注册时间及小可专属羁绊好感印象",
+      "enabled": true,
+      "command": "p",
+      "aliases": [
+        "player",
+        "seen",
+        "bal",
+        "查玩家",
+        "玩家档案"
+      ],
+      "allow_private": true,
+      "allowed_groups": [
+        516368088,
+        1127138554,
+        1085070135
+      ],
+      "denied_groups": [],
+      "allowed_users": [],
+      "denied_users": []
+    },
+    "link": {
+      "name": "QQ账号身份绑定",
+      "description": "使用个人中心生成的6位验证码完成QQ号与Minecraft账号一一对应绑定",
+      "enabled": true,
+      "command": "link",
+      "aliases": [
+        "bind",
+        "绑定"
+      ],
+      "allow_private": true,
+      "allowed_groups": [
+        516368088,
+        1127138554,
+        1085070135
+      ],
+      "denied_groups": [],
+      "allowed_users": [],
+      "denied_users": []
     }
   },
   "card_style": {
@@ -212,8 +213,8 @@
     "text_muted": "#8b949e"
   },
   "help_messages": {
-    "user": "✦ 自由核心 FreeCore · 小可指令手册 ✦\n--------------------------------\n【DEFAULT】\n▶ /status (/zt, /状态) : 查看全服各节点运行状态、人数与TPS\n▶ /line (/xl, /线路) : 查看Java版与基岩版全线路延迟与测速\n▶ /bal <玩家名> : 查询指定玩家的H币资产余额\n▶ /seen <玩家名> : 查询玩家上一次上线时间与离线时长\n▶ /help (/帮助) : 查看当前帮助信息\n--------------------------------",
-    "owner": "✦ 自由核心 FreeCore · 控制台管理手册 ✦\n--------------------------------\n【ADMIN】\n★ /status (/zt) : 全服状态监控卡片\n★ /line (/xl) : 全线路实时测速卡片\n★ /bal <玩家名> : 查询玩家H币资产\n★ /seen <玩家名> : 查询玩家最后在线时间\n★ /module : 查看当前所有功能模块开关状态\n★ /module <模块名> on/off : 开关本群指定功能模块\n--------------------------------"
+    "user": "✦ 自由核心 FreeCore · 小可指令手册 ✦\n--------------------------------\n【常用交互与查询指令】\n▶ /status (/zt, /状态) : 查看全服各节点运行状态、人数与TPS\n▶ /line (/xl, /线路) : 查看Java版与基岩版全线路延迟与测速\n▶ /p [玩家名] (/player, /bal, /seen) : 综合手绘黑卡！查询玩家皮肤头像、在线/最后上线动态、H币资产、注册时间与小可印象（已绑定QQ者可直接发送 /p 自动查询自己）\n▶ /link : QQ绑定说明（旧验证码已废除，前往官网使用QQ快捷登录即可直接绑定）\n▶ /help (/帮助) : 查看当前帮助信息\n▶ @小可 或 提及小可 : 与智能体小可聊天、询问游戏玩法或社区常识\n--------------------------------",
+    "owner": "✦ 自由核心 FreeCore · 控制台管理手册 ✦\n--------------------------------\n【服主 & 管理员管理权限】\n★ /status (/zt) : 全服状态监控卡片\n★ /line (/xl) : 全线路实时测速卡片\n★ /p [玩家名] (/player) : 玩家手绘综合档案卡片 (皮肤+seen+bal+注册+好感印象，缺省查自己)\n★ /link : QQ绑定说明（前往官网使用QQ快捷登录完成绑定）\n★ /spark : 深度性能诊断采样\n★ /module : 查看当前所有功能模块开关状态\n★ /module <模块名> on/off : 开关本群指定功能模块\n--------------------------------"
   },
   "proxy": {
     "host": "127.0.0.1",
